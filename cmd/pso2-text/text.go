@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 	"flag"
-	"aaronlindsay.com/go/pkg/pso2/ice"
+	"aaronlindsay.com/go/pkg/pso2/text"
 )
 
 func usage() {
@@ -43,14 +43,14 @@ func main() {
 	f, err := os.OpenFile(tpath, os.O_RDONLY, 0);
 	ragequit(tpath, err)
 
-	t, err := ice.NewTextFile(f)
+	t, err := text.NewTextFile(f)
 	ragequit(tpath, err)
 
 	if flagPrint {
 		for i, entry := range t.Entries {
 			fmt.Printf("%08x: %s\n", entry.Value, entry.Text)
 
-			if entry.TextStatus == ice.TextEntryString {
+			if entry.TextStatus == text.TextEntryString {
 				t.Entries[i].Text = "LOLOLOL"
 			}
 		}

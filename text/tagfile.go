@@ -1,4 +1,4 @@
-package ice
+package text
 
 // NOTE: This file is all wrong, by the way. Only TagRead() works, the rest can be thrown out
 

@@ -1,4 +1,4 @@
-package ice
+package text
 
 import (
 	"io"
