@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 	"flag"
-	"./ice"
+	"aaronlindsay.com/go/pkg/pso2/ice"
 )
 
 func usage() {
