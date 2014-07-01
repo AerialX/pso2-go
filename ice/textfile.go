@@ -3,6 +3,7 @@ package ice
 import (
 	"io"
 	"errors"
+	"aaronlindsay.com/go/pkg/pso2/util"
 	"github.com/quarnster/util/encoding/binary"
 	"unicode/utf8"
 	bin "encoding/binary"
@@ -99,8 +100,8 @@ func (t *TextFile) parse(r io.ReadSeeker) (err error) {
 
 	reader = binary.BinaryReader{ rel0.Data, binary.LittleEndian };
 	rel0size, err := reader.Uint32()
-	rel0data := io.NewSectionReader(readerAt(rel0.Data), 8, int64(rel0size))
-	rel0strings := io.NewSectionReader(readerAt(rel0.Data), int64(rel0size), int64(rel0.Size - rel0size))
+	rel0data := io.NewSectionReader(util.ReaderAt(rel0.Data), 8, int64(rel0size))
+	rel0strings := io.NewSectionReader(util.ReaderAt(rel0.Data), int64(rel0size), int64(rel0.Size - rel0size))
 	rel0reader := binary.BinaryReader{ rel0data, binary.LittleEndian };
 
 	pairMode := false

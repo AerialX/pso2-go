@@ -1,43 +1,9 @@
-package ice
+package util
 
 import (
 	"io"
 	"errors"
 )
-
-type readerAtWrapper struct {
-	io.ReadSeeker
-}
-
-func (r readerAtWrapper) ReadAt(p []byte, off int64) (int, error) {
-	r.Seek(off, 0)
-	return r.Read(p)
-}
-
-func readerAt(reader io.Reader) io.ReaderAt {
-	switch r := reader.(type) {
-		case io.ReaderAt:
-			return r
-		case io.ReadSeeker:
-			return readerAtWrapper{r}
-		default:
-			return readerAtWrapper{seeker(reader)}
-	}
-
-	panic("readerAt")
-}
-
-type closeGuardWrapper struct {
-	io.Writer
-}
-
-func (c closeGuardWrapper) Close() error {
-	return nil
-}
-
-func closeGuard(writer io.Writer) io.Writer {
-	return closeGuardWrapper{writer}
-}
 
 type seekerWrapper struct {
 	io.Reader
@@ -75,7 +41,7 @@ func (s seekerWrapper) Seek(offset int64, whence int) (int64, error) {
 	return s.position, err
 }
 
-func seeker(reader io.Reader) io.ReadSeeker {
+func Seeker(reader io.Reader) io.ReadSeeker {
 	switch r := reader.(type) {
 		case io.ReadSeeker:
 			return r

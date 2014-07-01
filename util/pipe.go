@@ -1,4 +1,4 @@
-package ice
+package util
 
 import "io"
 

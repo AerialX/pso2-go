@@ -4,6 +4,7 @@ package ice
 
 import (
 	"io"
+	"aaronlindsay.com/go/pkg/pso2/util"
 	"github.com/quarnster/util/encoding/binary"
 	bin "encoding/binary"
 )
@@ -35,7 +36,7 @@ func (f *TagFile) parse() error {
 	var entry TagFileEntry
 	for err = reader.ReadInterface(&entry); err == nil; err = reader.ReadInterface(&entry) {
 		offset += 8
-		entry.Data = io.NewSectionReader(readerAt(f.reader), offset, int64(entry.Size))
+		entry.Data = io.NewSectionReader(util.ReaderAt(f.reader), offset, int64(entry.Size))
 
 		f.Entries = append(f.Entries, entry)
 
@@ -57,7 +58,7 @@ func TagRead(r io.ReadSeeker) (TagFileEntry, error) {
 	var entry TagFileEntry
 	if err = reader.ReadInterface(&entry); err == nil {
 		offset, err := r.Seek(0, 1)
-		entry.Data = io.NewSectionReader(readerAt(r), offset, int64(entry.Size))
+		entry.Data = io.NewSectionReader(util.ReaderAt(r), offset, int64(entry.Size))
 
 		return entry, err
 	}

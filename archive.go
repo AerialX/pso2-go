@@ -8,7 +8,7 @@ import (
 	"strings"
 	"errors"
 	"path"
-	"./ice"
+	"aaronlindsay.com/go/pkg/pso2/ice"
 )
 
 func usage() {
