@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"io"
+	"path"
 	"flag"
 	"aaronlindsay.com/go/pkg/pso2/afp"
 )
@@ -49,10 +51,35 @@ func main() {
 	ragequit(apath, err)
 
 	if flagPrint {
-		fmt.Println(a)
+		for i := 0; i < a.EntryCount(); i++ {
+			file := a.Entry(i)
+
+			fmt.Printf("\t%s (%s):\t0x%08x\n", file.Name, file.Type, file.Size);
+
+			if file.Type == "aqo" {
+				m, err := afp.NewModel(file.Data)
+				ragequit(file.Name, err)
+
+				for _, entry := range m.Entries {
+					fmt.Printf("\t\t%s (%s):\t0x%08x\n", entry.Type, entry.SubType, entry.Size);
+				}
+			}
+		}
 	}
 
 	if flagExtract != "" {
+		os.MkdirAll(flagExtract, 0777);
+
+		for i := 0; i < a.EntryCount(); i++ {
+			file := a.Entry(i)
+			fmt.Println("Extracting", file.Name, "...")
+
+			f, err := os.Create(path.Join(flagExtract, file.Name));
+			ragequit(file.Name, err)
+
+			io.Copy(f, file.Data)
+			f.Close()
+		}
 	}
 
 	if flagWrite != "" {
