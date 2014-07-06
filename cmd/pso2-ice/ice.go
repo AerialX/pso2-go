@@ -113,6 +113,7 @@ func main() {
 				ragequit(file.Name, err)
 
 				io.Copy(f, file.Data)
+				f.Close()
 			}
 		}
 	}
