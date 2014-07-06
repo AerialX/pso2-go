@@ -13,11 +13,8 @@ $(CMDS):
 clean:
 	rm -f $(CMDS)
 
-pso2-ice: $(ICE_GO)
-pso2-text: $(TEXT_GO)
-pso2-afp: $(AFP_GO)
-
-%.go:
-	echo $@
+pso2-ice: $(ICE_GO) $(wildcard cmd/pso2-ice/*.go)
+pso2-text: $(TEXT_GO) $(wildcard cmd/pso2-text/*.go)
+pso2-afp: $(AFP_GO) $(wildcard cmd/pso2-afp/*.go)
 
 .PHONY: all clean
