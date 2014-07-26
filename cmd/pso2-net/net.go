@@ -50,7 +50,7 @@ func findaddr() (addr string) {
 }
 
 func main() {
-	var flagPrivateKey, flagPublicKey, flagIP, flagLog, flagDump string
+	var flagPrivateKey, flagPublicKey, flagIP, flagBind, flagLog, flagDump string
 	var keyPrivate *rsa.PrivateKey
 	var keyPublic *rsa.PublicKey
 
@@ -59,6 +59,7 @@ func main() {
 	flag.StringVar(&flagPublicKey, "pub", "", "client public key")
 	flag.StringVar(&flagLog, "log", "info", "log level (trace, debug, info, warning, error, critical)")
 	flag.StringVar(&flagIP, "a", findaddr(), "external IPv4 address")
+	flag.StringVar(&flagBind, "bind", "", "interface address to bind on")
 	flag.StringVar(&flagDump, "d", "", "dump packets to folder")
 	flag.Parse()
 
@@ -110,7 +111,7 @@ func main() {
 	}
 
 	newProxy := func(host string, port int) *pso2net.Proxy {
-		return pso2net.NewProxy(fmt.Sprintf(":%d", port), fmt.Sprintf("%s:%d", host, port))
+		return pso2net.NewProxy(fmt.Sprintf("%s:%d", flagBind, port), fmt.Sprintf("%s:%d", host, port))
 	}
 
 	startProxy := func(p *pso2net.Proxy, s *pso2net.PacketRoute, c *pso2net.PacketRoute) {
