@@ -5,7 +5,6 @@ import (
 	"flag"
 	"os"
 	"fmt"
-	_ "encoding/binary"
 	"crypto/rsa"
 	pso2net "aaronlindsay.com/go/pkg/pso2/net"
 	"aaronlindsay.com/go/pkg/pso2/net/packets"
