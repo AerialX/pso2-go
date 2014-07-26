@@ -8,7 +8,7 @@ import (
 const ShipCount = 10
 const TypeShip	= 0x00043d11
 var ShipHostnames [ShipCount]string = [ShipCount]string{
-	/*"gs001.pso2gs.net",
+	"gs001.pso2gs.net",
 	"gs016.pso2gs.net",
 	"gs031.pso2gs.net",
 	"gs046.pso2gs.net",
@@ -17,17 +17,7 @@ var ShipHostnames [ShipCount]string = [ShipCount]string{
 	"gs091.pso2gs.net",
 	"gs106.pso2gs.net",
 	"gs121.pso2gs.net",
-	"gs136.pso2gs.net",*/
-	"pso1.cyberkitsune.net",
-	"pso1.cyberkitsune.net",
-	"pso1.cyberkitsune.net",
-	"pso1.cyberkitsune.net",
-	"pso1.cyberkitsune.net",
-	"pso1.cyberkitsune.net",
-	"pso1.cyberkitsune.net",
-	"pso1.cyberkitsune.net",
-	"pso1.cyberkitsune.net",
-	"pso1.cyberkitsune.net",
+	"gs136.pso2gs.net",
 }
 
 type ShipEntry struct {
