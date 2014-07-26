@@ -12,7 +12,7 @@ import (
 )
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: archive [flags] archive.ice")
+	fmt.Fprintln(os.Stderr, "usage: pso2-ice [flags] archive.ice")
 	flag.PrintDefaults()
 	os.Exit(2)
 }
