@@ -22,23 +22,23 @@ type packetHandlerItem struct {
 
 type packetHandlerMaskItem struct {
 	packetHandlerItem
-	mask uint32
+	mask uint16
 }
 
 type PacketRoute struct {
-	items map[uint32][]packetHandlerItem
+	items map[uint16][]packetHandlerItem
 	masks []packetHandlerMaskItem
 }
 
-func (r *PacketRoute) Route(t uint32, prio int, h PacketHandler) {
+func (r *PacketRoute) Route(t uint16, prio int, h PacketHandler) {
 	if r.items == nil {
-		r.items = make(map[uint32][]packetHandlerItem)
+		r.items = make(map[uint16][]packetHandlerItem)
 	}
 
 	r.items[t] = append(r.items[t], packetHandlerItem{h, prio})
 }
 
-func (r *PacketRoute) RouteMask(t uint32, prio int, h PacketHandler) {
+func (r *PacketRoute) RouteMask(t uint16, prio int, h PacketHandler) {
 	r.masks = append(r.masks, packetHandlerMaskItem{packetHandlerItem{h, prio}, t})
 }
 

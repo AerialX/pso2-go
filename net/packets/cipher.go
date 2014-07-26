@@ -6,7 +6,7 @@ import (
 	"crypto/rand"
 )
 
-const TypeCipher	= 0x00000b11
+const TypeCipher = 0x0b11
 
 type Cipher struct {
 	KeyData [0x80]uint8
@@ -58,7 +58,7 @@ func (c *Cipher) SetKey(v []uint8, key *rsa.PublicKey) error {
 }
 
 func (s *Cipher) Packet() (*Packet, error) {
-	return PacketFromBinary(TypeCipher, s)
+	return PacketFromBinary(TypeCipher, 0, s)
 }
 
 func ParseCipher(p *Packet) (*Cipher, error) {

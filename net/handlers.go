@@ -72,6 +72,7 @@ func (h handlerDump) HandlePacket(c *Connection, p *packets.Packet) (bool, error
 	end := binary.LittleEndian
 	binary.Write(f, end, uint32(8 + len(p.Data)))
 	binary.Write(f, end, p.Type)
+	binary.Write(f, end, p.Flags)
 	binary.Write(f, end, p.Data)
 	f.Close()
 

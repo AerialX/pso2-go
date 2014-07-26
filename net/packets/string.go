@@ -6,7 +6,7 @@ import (
 	"encoding/binary"
 )
 
-func EncodeString(v string, xor, sub int) []uint8 {
+func EncodeVariableString(v string, xor, sub int) []uint8 {
 	data := utf16.Encode([]rune(v))
 
 	var odata bytes.Buffer
@@ -15,4 +15,16 @@ func EncodeString(v string, xor, sub int) []uint8 {
 	binary.Write(&odata, end, data)
 	binary.Write(&odata, end, uint16(0))
 	return odata.Bytes()
+}
+
+func DecodeString(v []uint16) string {
+	return string(utf16.Decode(v))
+}
+
+func EncodeString(v string, buffer []uint16) {
+	raw := utf16.Encode([]rune(v))
+	copy(buffer, raw)
+	for i := len(raw); i < len(buffer); i++ {
+		buffer[i] = 0
+	}
 }

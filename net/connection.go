@@ -1,6 +1,7 @@
 package net
 
 import (
+	"io"
 	"net"
 	"fmt"
 	"errors"
@@ -10,27 +11,27 @@ import (
 	"aaronlindsay.com/go/pkg/pso2/net/packets"
 )
 
-const maxPacketSize = 0x4000000
+const maxPacketSize = 0x04000000
 
 type Connection struct {
-	conn net.Conn
+	stream io.ReadWriter
 
 	icipher cipher.Stream
 	ocipher cipher.Stream
 }
 
-func NewConnection(conn net.Conn) *Connection {
+func NewConnection(stream io.ReadWriter) *Connection {
 	c := &Connection{}
-	c.conn = conn
+	c.stream = stream
 	return c
 }
 
 func (c *Connection) RemoteAddr() net.Addr {
-	return c.conn.RemoteAddr()
+	return c.stream.(net.Conn).RemoteAddr()
 }
 
 func (c *Connection) LocalAddr() net.Addr {
-	return c.conn.LocalAddr()
+	return c.stream.(net.Conn).LocalAddr()
 }
 
 func (c *Connection) SetCipher(key []uint8) (err error) {
@@ -50,7 +51,7 @@ func (c *Connection) ReadPacket() (*packets.Packet, error) {
 
 	read := 0
 	for read < len(headerData) {
-		n, err := c.conn.Read(headerData[read:])
+		n, err := c.stream.Read(headerData[read:])
 		read += n
 
 		if err != nil {
@@ -62,7 +63,7 @@ func (c *Connection) ReadPacket() (*packets.Packet, error) {
 		c.icipher.XORKeyStream(headerData[:], headerData[:])
 	}
 
-	p, size := &packets.Packet{binary.LittleEndian.Uint32(headerData[4:]), nil}, binary.LittleEndian.Uint32(headerData[:4])
+	p, size := &packets.Packet{binary.LittleEndian.Uint16(headerData[4:6]), binary.LittleEndian.Uint16(headerData[6:]), nil}, binary.LittleEndian.Uint32(headerData[:4])
 
 	if size < 8 || size > maxPacketSize {
 		return nil, errors.New("invalid packet size")
@@ -72,7 +73,7 @@ func (c *Connection) ReadPacket() (*packets.Packet, error) {
 	p.Data = data
 
 	for len(data) > 0 {
-		n, err := c.conn.Read(data)
+		n, err := c.stream.Read(data)
 
 		if err != nil {
 			return p, err
@@ -95,7 +96,8 @@ func (c *Connection) WritePacket(p *packets.Packet) error {
 
 	data := make([]uint8, 8 + len(p.Data))
 	binary.LittleEndian.PutUint32(data[:4], uint32(len(data)))
-	binary.LittleEndian.PutUint32(data[4:8], p.Type)
+	binary.LittleEndian.PutUint16(data[4:6], p.Type)
+	binary.LittleEndian.PutUint16(data[6:8], p.Flags)
 	copy(data[8:], p.Data)
 
 	if c.ocipher != nil {
@@ -103,7 +105,7 @@ func (c *Connection) WritePacket(p *packets.Packet) error {
 	}
 
 	for len(data) > 0 {
-		w, err := c.conn.Write(data)
+		w, err := c.stream.Write(data)
 
 		if err != nil {
 			return err
@@ -136,9 +138,17 @@ func (c *Connection) RoutePackets(r *PacketRoute) error {
 }
 
 func (c *Connection) Close() error {
-	return c.conn.Close()
+	if s, ok := c.stream.(io.Closer); ok {
+		return s.Close()
+	}
+
+	return nil
 }
 
 func (c *Connection) String() string {
-	return fmt.Sprintf("[pso2/net/connection: %s -> %s]", c.conn.LocalAddr(), c.conn.RemoteAddr())
+	if c, ok := c.stream.(net.Conn); ok {
+		return fmt.Sprintf("[pso2/net/connection: %s -> %s]", c.LocalAddr(), c.RemoteAddr())
+	} else {
+		return "[pso2/net/connection]"
+	}
 }

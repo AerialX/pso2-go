@@ -127,14 +127,71 @@ func (h proxyHandlerShip) HandlePacket(c *Connection, p *packets.Packet) (bool, 
 	}
 
 	for i := range s.Entries {
-		e := &s.Entries[i]
-
-		if h.addr != nil {
-			e.SetAddress(h.addr)
-		}
+		s.Entries[i].SetAddress(h.addr)
 	}
 
 	p, err = s.Packet()
+
+	if err != nil {
+		return false, err
+	}
+
+	return true, h.proxy.Destination(c).WritePacket(p)
+}
+
+func ProxyHandlerBlocks(p *Proxy, ip net.IP) PacketHandler {
+	return proxyHandlerBlocks{p, ip}
+}
+
+type proxyHandlerBlocks struct {
+	proxy *Proxy
+	addr net.IP
+}
+
+func (h proxyHandlerBlocks) HandlePacket(c *Connection, p *packets.Packet) (bool, error) {
+	Logger.Debugf("%s %s block list packet, rewriting addresses", h.proxy, c)
+
+	b, err := packets.ParseBlocks(p)
+	if err != nil {
+		return false, err
+	}
+
+	for i := range b.Entries {
+		b.Entries[i].SetAddress(h.addr)
+	}
+
+	packetType := p.Type
+	p, err = b.Packet()
+
+	if err != nil {
+		return false, err
+	}
+
+	p.Type = packetType
+
+	return true, h.proxy.Destination(c).WritePacket(p)
+}
+
+func ProxyHandlerBlockResponse(p *Proxy, ip net.IP) PacketHandler {
+	return proxyHandlerBlockResponse{p, ip}
+}
+
+type proxyHandlerBlockResponse struct {
+	proxy *Proxy
+	addr net.IP
+}
+
+func (h proxyHandlerBlockResponse) HandlePacket(c *Connection, p *packets.Packet) (bool, error) {
+	Logger.Debugf("%s %s block response packet, rewriting address", h.proxy, c)
+
+	b, err := packets.ParseBlockResponse(p)
+	if err != nil {
+		return false, err
+	}
+
+	b.SetAddress(h.addr)
+
+	p, err = b.Packet()
 
 	if err != nil {
 		return false, err
@@ -153,7 +210,7 @@ type proxyHandlerBlock struct {
 }
 
 func (h proxyHandlerBlock) HandlePacket(c *Connection, p *packets.Packet) (bool, error) {
-	Logger.Debugf("%s %s block packet, rewriting addresses", h.proxy, c)
+	Logger.Debugf("%s %s block packet, rewriting address", h.proxy, c)
 
 	b, err := packets.ParseBlock(p)
 	if err != nil {
@@ -167,6 +224,37 @@ func (h proxyHandlerBlock) HandlePacket(c *Connection, p *packets.Packet) (bool,
 	if err != nil {
 		return false, err
 	}
+
+	return true, h.proxy.Destination(c).WritePacket(p)
+}
+
+func ProxyHandlerRoom(p *Proxy, ip net.IP) PacketHandler {
+	return proxyHandlerRoom{p, ip}
+}
+
+type proxyHandlerRoom struct {
+	proxy *Proxy
+	addr net.IP
+}
+
+func (h proxyHandlerRoom) HandlePacket(c *Connection, p *packets.Packet) (bool, error) {
+	Logger.Debugf("%s %s room packet, rewriting address", h.proxy, c)
+
+	r, err := packets.ParseRoom(p)
+	if err != nil {
+		return false, err
+	}
+
+	r.SetAddress(h.addr)
+
+	packetType := p.Type
+	p, err = r.Packet()
+
+	if err != nil {
+		return false, err
+	}
+
+	p.Type = packetType
 
 	return true, h.proxy.Destination(c).WritePacket(p)
 }

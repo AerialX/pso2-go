@@ -2,11 +2,10 @@ package packets
 
 import (
 	"net"
-	"unicode/utf16"
 )
 
+const TypeShip	= 0x3d11
 const ShipCount = 10
-const TypeShip	= 0x00043d11
 var ShipHostnames [ShipCount]string = [ShipCount]string{
 	"gs001.pso2gs.net",
 	"gs016.pso2gs.net",
@@ -33,15 +32,11 @@ type Ship struct {
 }
 
 func (s *ShipEntry) Name() string {
-	return string(utf16.Decode(s.NameRaw[:]))
+	return DecodeString(s.NameRaw[:])
 }
 
 func (s *ShipEntry) SetName(v string) {
-	raw := utf16.Encode([]rune(v))
-	copy(s.NameRaw[:], raw)
-	for i := len(raw); i < len(s.NameRaw); i++ {
-		s.NameRaw[i] = 0
-	}
+	EncodeString(v, s.NameRaw[:])
 }
 
 func (s *ShipEntry) Address() net.IP {
@@ -49,19 +44,14 @@ func (s *ShipEntry) Address() net.IP {
 }
 
 func (s *ShipEntry) SetAddress(v net.IP) {
-	v = v.To4()
-	copy(s.AddressRaw[:], v)
+	copy(s.AddressRaw[:], v.To4())
 }
 
 func (s *Ship) Packet() (*Packet, error) {
-	return PacketFromBinary(TypeShip, s)
+	return PacketFromBinary(TypeShip, FlagProcessed, s)
 }
 
 func ParseShip(p *Packet) (*Ship, error) {
 	s, err := PacketToBinary(p, &Ship{})
 	return s.(*Ship), err
-}
-
-func packetShip(p *Packet) (interface{}, error) {
-	return ParseShip(p)
 }

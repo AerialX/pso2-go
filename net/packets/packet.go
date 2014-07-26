@@ -8,13 +8,16 @@ import (
 	"aaronlindsay.com/go/pkg/pso2/util"
 )
 
+const FlagProcessed = 4
+
 type Packet struct {
-	Type uint32
+	Type uint16
+	Flags uint16
 	Data []uint8
 }
 
 func (p *Packet) String() string {
-	return fmt.Sprintf("[pso2/net/packet: 0x%08x size: 0x%08x]", p.Type, len(p.Data))
+	return fmt.Sprintf("[pso2/net/packet: 0x%04x (0x%04x) size: 0x%08x]", p.Type, p.Flags, len(p.Data))
 }
 
 type PacketData interface {
@@ -29,7 +32,7 @@ func PacketToBinary(p *Packet, i interface{}) (interface{}, error) {
 	return i, err
 }
 
-func PacketFromBinary(packetType uint32, i interface{}) (*Packet, error) {
+func PacketFromBinary(packetType, flags uint16, i interface{}) (*Packet, error) {
 	data := make([]uint8, 0, bin.Size(i))
 	b := bytes.NewBuffer(data)
 	err := bin.Write(b, bin.LittleEndian, i)
@@ -38,5 +41,5 @@ func PacketFromBinary(packetType uint32, i interface{}) (*Packet, error) {
 		return nil, err
 	}
 
-	return &Packet{packetType, b.Bytes()}, nil
+	return &Packet{packetType, flags, b.Bytes()}, nil
 }

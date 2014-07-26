@@ -1,13 +1,15 @@
 package main
 
 import (
-	"net"
-	"flag"
 	"os"
+	"net"
 	"fmt"
+	"flag"
+	"io/ioutil"
 	"crypto/rsa"
 	pso2net "aaronlindsay.com/go/pkg/pso2/net"
 	"aaronlindsay.com/go/pkg/pso2/net/packets"
+	"aaronlindsay.com/go/pkg/pso2/util"
 	"github.com/juju/loggo"
 )
 
@@ -50,7 +52,7 @@ func findaddr() (addr string) {
 }
 
 func main() {
-	var flagPrivateKey, flagPublicKey, flagIP, flagBind, flagLog, flagDump string
+	var flagPrivateKey, flagPublicKey, flagIP, flagBind, flagProxy, flagLog, flagDump, flagReplay string
 	var keyPrivate *rsa.PrivateKey
 	var keyPublic *rsa.PublicKey
 
@@ -58,9 +60,11 @@ func main() {
 	flag.StringVar(&flagPrivateKey, "priv", "", "server private key")
 	flag.StringVar(&flagPublicKey, "pub", "", "client public key")
 	flag.StringVar(&flagLog, "log", "info", "log level (trace, debug, info, warning, error, critical)")
-	flag.StringVar(&flagIP, "a", findaddr(), "external IPv4 address")
+	flag.StringVar(&flagProxy, "proxy", "", "proxy server to connect to instead of PSO2")
 	flag.StringVar(&flagBind, "bind", "", "interface address to bind on")
-	flag.StringVar(&flagDump, "d", "", "dump packets to folder")
+	flag.StringVar(&flagIP, "addr", findaddr(), "external IPv4 address")
+	flag.StringVar(&flagDump, "dump", "", "dump packets to folder")
+	flag.StringVar(&flagReplay, "replay", "", "replay packets from a dump")
 	flag.Parse()
 
 	ip := net.IPv4(127, 0, 0, 1)
@@ -99,72 +103,97 @@ func main() {
 		ragequit(flagPublicKey, err)
 	}
 
-	Logger.Infof("Starting proxy servers on %s", ip)
+	if flagReplay != "" {
+		Logger.Infof("Replaying packets from %s", flagReplay)
 
-	fallbackRoute := func(p *pso2net.Proxy) *pso2net.PacketRoute {
-		r := &pso2net.PacketRoute{}
-		r.RouteMask(0xffffffff, pso2net.RoutePriorityLow, pso2net.ProxyHandlerFallback(p))
-		if flagDump != "" {
-			r.RouteMask(0xffffffff, pso2net.RoutePriorityHigh, pso2net.HandlerIgnore(pso2net.HandlerDump(flagDump)))
+		f, err := os.Open(flagReplay)
+		ragequit(flagReplay, err)
+
+		c := pso2net.NewConnection(util.ReadWriter(f, ioutil.Discard))
+		var r pso2net.PacketRoute
+		err = c.RoutePackets(&r)
+		ragequit(flagReplay, err)
+	} else {
+		Logger.Infof("Starting proxy servers on %s", ip)
+
+		fallbackRoute := func(p *pso2net.Proxy) *pso2net.PacketRoute {
+			r := &pso2net.PacketRoute{}
+			r.RouteMask(0xffff, pso2net.RoutePriorityLow, pso2net.ProxyHandlerFallback(p))
+			if flagDump != "" {
+				r.RouteMask(0xffff, pso2net.RoutePriorityHigh, pso2net.HandlerIgnore(pso2net.HandlerDump(flagDump)))
+			}
+			return r
 		}
-		return r
-	}
 
-	newProxy := func(host string, port int) *pso2net.Proxy {
-		return pso2net.NewProxy(fmt.Sprintf("%s:%d", flagBind, port), fmt.Sprintf("%s:%d", host, port))
-	}
-
-	startProxy := func(p *pso2net.Proxy, s *pso2net.PacketRoute, c *pso2net.PacketRoute) {
-		l, err := p.Listen()
-		ragequit(p.String(), err)
-
-		go p.Start(l, s, c)
-	}
-
-	for i := 0; i < packets.ShipCount; i++ {
-		blockPort := 12000 + (100 * i)
-		shipPort := blockPort + 99
-
-		// Set up ship proxy, rewrites IPs
-		proxy := newProxy(packets.ShipHostnames[i], shipPort)
-		route := &pso2net.PacketRoute{}
-		route.Route(packets.TypeShip, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerShip(proxy, ip))
-		route.RouteMask(0xffffffff, pso2net.RoutePriorityLow, pso2net.ProxyHandlerFallback(proxy))
-		if flagDump != "" {
-			route.RouteMask(0xffffffff, pso2net.RoutePriorityHigh, pso2net.HandlerIgnore(pso2net.HandlerDump(flagDump)))
+		newProxy := func(host string, port int) *pso2net.Proxy {
+			return pso2net.NewProxy(fmt.Sprintf("%s:%d", flagBind, port), fmt.Sprintf("%s:%d", host, port))
 		}
-		startProxy(proxy, fallbackRoute(proxy), route)
 
-		// Set up block proxy, rewrites IPs
-		proxy = newProxy(packets.ShipHostnames[i], blockPort)
-		route = &pso2net.PacketRoute{}
-		route.Route(packets.TypeBlock, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerBlock(proxy, ip))
-		route.RouteMask(0xffffffff, pso2net.RoutePriorityLow, pso2net.ProxyHandlerFallback(proxy))
-		if flagDump != "" {
-			route.RouteMask(0xffffffff, pso2net.RoutePriorityHigh, pso2net.HandlerIgnore(pso2net.HandlerDump(flagDump)))
+		startProxy := func(p *pso2net.Proxy, s *pso2net.PacketRoute, c *pso2net.PacketRoute) {
+			l, err := p.Listen()
+			ragequit(p.String(), err)
+
+			go p.Start(l, s, c)
 		}
-		startProxy(proxy, fallbackRoute(proxy), route)
 
-		for b := 1; b < 99; b++ {
-			proxy = newProxy(packets.ShipHostnames[i], blockPort + b)
+		hostname := func(ship int) string {
+			if flagProxy != "" {
+				return flagProxy
+			}
 
-			// Set up client route (messages from the PSO2 server)
+			return packets.ShipHostnames[ship]
+		}
+
+		for i := 0; i < packets.ShipCount; i++ {
+			blockPort := 12000 + (100 * i)
+			shipPort := blockPort + 99
+
+			// Set up ship proxy, rewrites IPs
+			proxy := newProxy(hostname(i), shipPort)
+			route := &pso2net.PacketRoute{}
+			route.Route(packets.TypeShip, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerShip(proxy, ip))
+			route.RouteMask(0xffff, pso2net.RoutePriorityLow, pso2net.ProxyHandlerFallback(proxy))
+			if flagDump != "" {
+				route.RouteMask(0xffff, pso2net.RoutePriorityHigh, pso2net.HandlerIgnore(pso2net.HandlerDump(flagDump)))
+			}
+			startProxy(proxy, fallbackRoute(proxy), route)
+
+			// Set up block proxy, rewrites IPs
+			proxy = newProxy(hostname(i), blockPort)
 			route = &pso2net.PacketRoute{}
-			route.RouteMask(0xffffffff, pso2net.RoutePriorityLow, pso2net.ProxyHandlerFallback(proxy))
+			route.Route(packets.TypeBlock, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerBlock(proxy, ip))
+			route.RouteMask(0xffff, pso2net.RoutePriorityLow, pso2net.ProxyHandlerFallback(proxy))
 			if flagDump != "" {
-				route.RouteMask(0xffffffff, pso2net.RoutePriorityHigh, pso2net.HandlerIgnore(pso2net.HandlerDump(flagDump)))
+				route.RouteMask(0xffff, pso2net.RoutePriorityHigh, pso2net.HandlerIgnore(pso2net.HandlerDump(flagDump)))
 			}
+			startProxy(proxy, fallbackRoute(proxy), route)
 
-			// Set up server route (messages from the client)
-			sroute := &pso2net.PacketRoute{}
-			sroute.Route(packets.TypeCipher, pso2net.RoutePriorityHigh, pso2net.HandlerIgnore(pso2net.HandlerCipher(keyPrivate)))
-			sroute.Route(packets.TypeCipher, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerCipher(proxy, keyPrivate, keyPublic))
-			sroute.RouteMask(0xffffffff, pso2net.RoutePriorityLow, pso2net.ProxyHandlerFallback(proxy))
-			if flagDump != "" {
-				sroute.RouteMask(0xffffffff, pso2net.RoutePriorityHigh, pso2net.HandlerIgnore(pso2net.HandlerDump(flagDump)))
+			for b := 1; b < 99; b++ {
+				proxy = newProxy(hostname(i), blockPort + b)
+
+				// Set up client route (messages from the PSO2 server)
+				route = &pso2net.PacketRoute{}
+				route.Route(packets.TypeRoom, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerRoom(proxy, ip))
+				route.Route(packets.TypeRoomTeam, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerRoom(proxy, ip))
+				route.Route(packets.TypeBlockResponse, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerBlockResponse(proxy, ip))
+				route.Route(packets.TypeBlocks, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerBlocks(proxy, ip))
+				route.Route(packets.TypeBlocks2, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerBlocks(proxy, ip))
+				route.RouteMask(0xffff, pso2net.RoutePriorityLow, pso2net.ProxyHandlerFallback(proxy))
+				if flagDump != "" {
+					route.RouteMask(0xffff, pso2net.RoutePriorityHigh, pso2net.HandlerIgnore(pso2net.HandlerDump(flagDump)))
+				}
+
+				// Set up server route (messages from the client)
+				sroute := &pso2net.PacketRoute{}
+				sroute.Route(packets.TypeCipher, pso2net.RoutePriorityHigh, pso2net.HandlerIgnore(pso2net.HandlerCipher(keyPrivate)))
+				sroute.Route(packets.TypeCipher, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerCipher(proxy, keyPrivate, keyPublic))
+				sroute.RouteMask(0xffff, pso2net.RoutePriorityLow, pso2net.ProxyHandlerFallback(proxy))
+				if flagDump != "" {
+					sroute.RouteMask(0xffff, pso2net.RoutePriorityHigh, pso2net.HandlerIgnore(pso2net.HandlerDump(flagDump)))
+				}
+
+				startProxy(proxy, sroute, route)
 			}
-
-			startProxy(proxy, sroute, route)
 		}
 	}
 
