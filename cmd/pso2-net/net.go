@@ -51,6 +51,15 @@ func findaddr() (addr string) {
 	return
 }
 
+type EndpointMap map[uint16]*pso2net.Proxy
+func (e EndpointMap) EndpointAnnouncement(ip net.IP, port uint16) {
+	if m, ok := e[port]; ok {
+		m.ClientEndpoint = fmt.Sprintf("%s:%d", ip, port)
+	} else {
+		Logger.Warningf("Unknown endpoint announcement for %s:%d", ip, port)
+	}
+}
+
 func main() {
 	var flagPrivateKey, flagPublicKey, flagIP, flagBind, flagProxy, flagLog, flagDump, flagReplay string
 	var keyPrivate *rsa.PrivateKey
@@ -125,7 +134,7 @@ func main() {
 			return r
 		}
 
-		newProxy := func(host string, port int) *pso2net.Proxy {
+		newProxy := func(host string, port uint16) *pso2net.Proxy {
 			return pso2net.NewProxy(fmt.Sprintf("%s:%d", flagBind, port), fmt.Sprintf("%s:%d", host, port))
 		}
 
@@ -144,40 +153,45 @@ func main() {
 			return packets.ShipHostnames[ship]
 		}
 
+		endpoints := make(EndpointMap)
+
 		for i := 0; i < packets.ShipCount; i++ {
-			blockPort := 12000 + (100 * i)
-			shipPort := blockPort + 99
+			blockPort := uint16(12000 + (100 * i))
+			shipPort := uint16(blockPort + 99)
 
 			// Set up ship proxy, rewrites IPs
 			proxy := newProxy(hostname(i), shipPort)
 			route := &pso2net.PacketRoute{}
-			route.Route(packets.TypeShip, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerShip(proxy, ip))
+			route.Route(packets.TypeShip, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerShip(proxy, endpoints, ip))
 			route.RouteMask(0xffff, pso2net.RoutePriorityLow, pso2net.ProxyHandlerFallback(proxy))
 			if flagDump != "" {
 				route.RouteMask(0xffff, pso2net.RoutePriorityHigh, pso2net.HandlerIgnore(pso2net.HandlerDump(flagDump)))
 			}
+			endpoints[shipPort] = proxy
 			startProxy(proxy, fallbackRoute(proxy), route)
 
 			// Set up block proxy, rewrites IPs
 			proxy = newProxy(hostname(i), blockPort)
 			route = &pso2net.PacketRoute{}
-			route.Route(packets.TypeBlock, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerBlock(proxy, ip))
+			route.Route(packets.TypeBlock, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerBlock(proxy, endpoints, ip))
 			route.RouteMask(0xffff, pso2net.RoutePriorityLow, pso2net.ProxyHandlerFallback(proxy))
 			if flagDump != "" {
 				route.RouteMask(0xffff, pso2net.RoutePriorityHigh, pso2net.HandlerIgnore(pso2net.HandlerDump(flagDump)))
 			}
+			endpoints[blockPort] = proxy
 			startProxy(proxy, fallbackRoute(proxy), route)
 
-			for b := 1; b < 99; b++ {
-				proxy = newProxy(hostname(i), blockPort + b)
+			for b := uint16(1); b < 99; b++ {
+				port := blockPort + b
+				proxy = newProxy(hostname(i), port)
 
 				// Set up client route (messages from the PSO2 server)
 				route = &pso2net.PacketRoute{}
-				route.Route(packets.TypeRoom, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerRoom(proxy, ip))
-				route.Route(packets.TypeRoomTeam, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerRoom(proxy, ip))
-				route.Route(packets.TypeBlockResponse, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerBlockResponse(proxy, ip))
-				route.Route(packets.TypeBlocks, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerBlocks(proxy, ip))
-				route.Route(packets.TypeBlocks2, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerBlocks(proxy, ip))
+				route.Route(packets.TypeRoom, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerRoom(proxy, endpoints, ip))
+				route.Route(packets.TypeRoomTeam, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerRoom(proxy, endpoints, ip))
+				route.Route(packets.TypeBlockResponse, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerBlockResponse(proxy, endpoints, ip))
+				route.Route(packets.TypeBlocks, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerBlocks(proxy, endpoints, ip))
+				route.Route(packets.TypeBlocks2, pso2net.RoutePriorityNormal, pso2net.ProxyHandlerBlocks(proxy, endpoints, ip))
 				route.RouteMask(0xffff, pso2net.RoutePriorityLow, pso2net.ProxyHandlerFallback(proxy))
 				if flagDump != "" {
 					route.RouteMask(0xffff, pso2net.RoutePriorityHigh, pso2net.HandlerIgnore(pso2net.HandlerDump(flagDump)))
@@ -192,6 +206,7 @@ func main() {
 					sroute.RouteMask(0xffff, pso2net.RoutePriorityHigh, pso2net.HandlerIgnore(pso2net.HandlerDump(flagDump)))
 				}
 
+				endpoints[port] = proxy
 				startProxy(proxy, sroute, route)
 			}
 		}

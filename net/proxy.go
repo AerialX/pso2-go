@@ -9,7 +9,7 @@ import (
 )
 
 type Proxy struct {
-	serverEndpoint, clientEndpoint string
+	ServerEndpoint, ClientEndpoint string
 
 	connections map[*Connection]*Connection
 	connectionsLock sync.Mutex
@@ -20,7 +20,7 @@ func NewProxy(serverEndpoint, clientEndpoint string) *Proxy {
 }
 
 func (p *Proxy) Listen() (net.Listener, error) {
-	return net.Listen("tcp4", p.serverEndpoint)
+	return net.Listen("tcp4", p.ServerEndpoint)
 }
 
 func (p *Proxy) Start(l net.Listener, serverRoute *PacketRoute, clientRoute *PacketRoute) error {
@@ -49,7 +49,7 @@ func (p *Proxy) Start(l net.Listener, serverRoute *PacketRoute, clientRoute *Pac
 }
 
 func (p *Proxy) Connect(c *Connection) (*Connection, error) {
-	clientConn, err := net.Dial("tcp4", p.clientEndpoint)
+	clientConn, err := net.Dial("tcp4", p.ClientEndpoint)
 
 	if err != nil {
 		return nil, err
@@ -105,16 +105,20 @@ func (p *Proxy) Destination(c *Connection) (d *Connection) {
 }
 
 func (p *Proxy) String() string {
-	return fmt.Sprintf("[pso2/net/proxy: %s -> %s]", p.serverEndpoint, p.clientEndpoint)
+	return fmt.Sprintf("[pso2/net/proxy: %s -> %s]", p.ServerEndpoint, p.ClientEndpoint)
 }
 
+type ProxyEndpointListener interface {
+	EndpointAnnouncement(ip net.IP, port uint16)
+}
 
-func ProxyHandlerShip(p *Proxy, ip net.IP) PacketHandler {
-	return proxyHandlerShip{p, ip}
+func ProxyHandlerShip(p *Proxy, l ProxyEndpointListener, ip net.IP) PacketHandler {
+	return proxyHandlerShip{p, l, ip}
 }
 
 type proxyHandlerShip struct {
 	proxy *Proxy
+	listener ProxyEndpointListener
 	addr net.IP
 }
 
@@ -127,7 +131,9 @@ func (h proxyHandlerShip) HandlePacket(c *Connection, p *packets.Packet) (bool, 
 	}
 
 	for i := range s.Entries {
-		s.Entries[i].SetAddress(h.addr)
+		e := &s.Entries[i]
+		h.listener.EndpointAnnouncement(e.Address(), 12000 + (uint16(e.Number) % 10000))
+		e.SetAddress(h.addr)
 	}
 
 	p, err = s.Packet()
@@ -139,12 +145,13 @@ func (h proxyHandlerShip) HandlePacket(c *Connection, p *packets.Packet) (bool, 
 	return true, h.proxy.Destination(c).WritePacket(p)
 }
 
-func ProxyHandlerBlocks(p *Proxy, ip net.IP) PacketHandler {
-	return proxyHandlerBlocks{p, ip}
+func ProxyHandlerBlocks(p *Proxy, l ProxyEndpointListener, ip net.IP) PacketHandler {
+	return proxyHandlerBlocks{p, l, ip}
 }
 
 type proxyHandlerBlocks struct {
 	proxy *Proxy
+	listener ProxyEndpointListener
 	addr net.IP
 }
 
@@ -157,7 +164,9 @@ func (h proxyHandlerBlocks) HandlePacket(c *Connection, p *packets.Packet) (bool
 	}
 
 	for i := range b.Entries {
-		b.Entries[i].SetAddress(h.addr)
+		e := &b.Entries[i]
+		h.listener.EndpointAnnouncement(e.Address(), e.Port)
+		e.SetAddress(h.addr)
 	}
 
 	packetType := p.Type
@@ -172,12 +181,13 @@ func (h proxyHandlerBlocks) HandlePacket(c *Connection, p *packets.Packet) (bool
 	return true, h.proxy.Destination(c).WritePacket(p)
 }
 
-func ProxyHandlerBlockResponse(p *Proxy, ip net.IP) PacketHandler {
-	return proxyHandlerBlockResponse{p, ip}
+func ProxyHandlerBlockResponse(p *Proxy, l ProxyEndpointListener, ip net.IP) PacketHandler {
+	return proxyHandlerBlockResponse{p, l, ip}
 }
 
 type proxyHandlerBlockResponse struct {
 	proxy *Proxy
+	listener ProxyEndpointListener
 	addr net.IP
 }
 
@@ -189,6 +199,7 @@ func (h proxyHandlerBlockResponse) HandlePacket(c *Connection, p *packets.Packet
 		return false, err
 	}
 
+	h.listener.EndpointAnnouncement(b.Address(), b.Port)
 	b.SetAddress(h.addr)
 
 	p, err = b.Packet()
@@ -200,12 +211,13 @@ func (h proxyHandlerBlockResponse) HandlePacket(c *Connection, p *packets.Packet
 	return true, h.proxy.Destination(c).WritePacket(p)
 }
 
-func ProxyHandlerBlock(p *Proxy, ip net.IP) PacketHandler {
-	return proxyHandlerBlock{p, ip}
+func ProxyHandlerBlock(p *Proxy, l ProxyEndpointListener, ip net.IP) PacketHandler {
+	return proxyHandlerBlock{p, l, ip}
 }
 
 type proxyHandlerBlock struct {
 	proxy *Proxy
+	listener ProxyEndpointListener
 	addr net.IP
 }
 
@@ -217,6 +229,7 @@ func (h proxyHandlerBlock) HandlePacket(c *Connection, p *packets.Packet) (bool,
 		return false, err
 	}
 
+	h.listener.EndpointAnnouncement(b.Address(), b.Port)
 	b.SetAddress(h.addr)
 
 	p, err = b.Packet()
@@ -228,12 +241,13 @@ func (h proxyHandlerBlock) HandlePacket(c *Connection, p *packets.Packet) (bool,
 	return true, h.proxy.Destination(c).WritePacket(p)
 }
 
-func ProxyHandlerRoom(p *Proxy, ip net.IP) PacketHandler {
-	return proxyHandlerRoom{p, ip}
+func ProxyHandlerRoom(p *Proxy, l ProxyEndpointListener, ip net.IP) PacketHandler {
+	return proxyHandlerRoom{p, l, ip}
 }
 
 type proxyHandlerRoom struct {
 	proxy *Proxy
+	listener ProxyEndpointListener
 	addr net.IP
 }
 
@@ -245,6 +259,7 @@ func (h proxyHandlerRoom) HandlePacket(c *Connection, p *packets.Packet) (bool, 
 		return false, err
 	}
 
+	h.listener.EndpointAnnouncement(r.Address(), r.Port)
 	r.SetAddress(h.addr)
 
 	packetType := p.Type
