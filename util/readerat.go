@@ -2,6 +2,7 @@ package util
 
 import (
 	"io"
+	"errors"
 )
 
 type readerAtWrapper struct {
@@ -9,7 +10,15 @@ type readerAtWrapper struct {
 }
 
 func (r readerAtWrapper) ReadAt(p []byte, off int64) (int, error) {
-	r.Seek(off, 0)
+	n, err := r.Seek(off, 0)
+	if err == nil && n != off {
+		err = errors.New("unable to seek to requested offset")
+	}
+
+	if err != nil {
+		return 0, err
+	}
+
 	return r.Read(p)
 }
 

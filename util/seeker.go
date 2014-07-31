@@ -25,9 +25,9 @@ func (s seekerWrapper) Seek(offset int64, whence int) (int64, error) {
 
 	// Read forward until we reach our destination
 	var err error
+	var buffer [0x400]uint8
 	for offset > s.position && err == nil {
 		diff := offset - s.position
-		var buffer [0x400]uint8
 
 		if diff > int64(len(buffer)) {
 			diff = int64(len(buffer))
