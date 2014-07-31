@@ -5,10 +5,12 @@ import (
 	"os"
 	"io"
 	"flag"
+	"bufio"
 	"strings"
 	"errors"
 	"path"
 	"aaronlindsay.com/go/pkg/pso2/ice"
+	"aaronlindsay.com/go/pkg/pso2/util"
 )
 
 func usage() {
@@ -85,7 +87,7 @@ func main() {
 	f, err := os.OpenFile(apath, os.O_RDONLY, 0);
 	ragequit(apath, err)
 
-	a, err := ice.NewArchive(f)
+	a, err := ice.NewArchive(util.BufReader(f))
 	ragequit(apath, err)
 
 	if flagPrint {
@@ -147,6 +149,9 @@ func main() {
 		}
 
 		fmt.Fprintf(os.Stderr, "Writing to archive `%s`...\n", flagWrite)
-		a.Write(ofile)
+		writer := bufio.NewWriter(ofile)
+		a.Write(writer)
+		writer.Flush()
+		ofile.Close()
 	}
 }
