@@ -5,20 +5,25 @@ import "io"
 // Reference: https://github.com/Grumbel/rfactortools/blob/master/other/quickbms/src/compression/prs.cpp
 // (modification: long copy sizes are readByte() + 10, not +1 as that source mentions)
 
+const prsBufferSize = 0x10000
+const prsBufferThreshold = prsBufferSize - 0x400
+const prsBufferLookbehind = 0x2000
+
 type prsReader struct {
 	reader io.ReadSeeker
 	controlPos, controlByte uint8
 
-	outputBuffer []uint8
+	buffer [prsBufferSize]uint8
+	byteBuffer [1]uint8
+	outputBufferPosition int
 	outputPosition int
 	size, position int64
 	err error
 }
 
 func (s *prsReader) readByte() (ret uint8, err error) {
-	var buffer [1]uint8
-	_, err = s.reader.Read(buffer[:])
-	ret = buffer[0]
+	_, err = s.reader.Read(s.byteBuffer[:])
+	ret = s.byteBuffer[0]
 	return
 }
 
@@ -90,12 +95,12 @@ func (s *prsReader) decompress() error {
 		}
 
 		if err == nil {
-			bufferPos := len(s.outputBuffer)
+			bufferPos := s.outputBufferPosition
 			for i := 0; i < size; i++ {
 				var b uint8 = 0
 				pos := offset + i + bufferPos
-				if pos < len(s.outputBuffer) {
-					b = s.outputBuffer[offset + i + bufferPos]
+				if pos < s.outputBufferPosition {
+					b = s.buffer[offset + i + bufferPos]
 				}
 				s.queueOutput(b, false)
 			}
@@ -111,7 +116,8 @@ func (s *prsReader) decompress() error {
 }
 
 func (s *prsReader) queueOutput(b uint8, flush bool) {
-	s.outputBuffer = append(s.outputBuffer, b)
+	s.buffer[s.outputBufferPosition] = b
+	s.outputBufferPosition++
 
 	if flush {
 		s.flushOutput()
@@ -120,13 +126,12 @@ func (s *prsReader) queueOutput(b uint8, flush bool) {
 
 func (s *prsReader) flushOutput() {
 	// Flush our buffer every 16KB
-	if len(s.outputBuffer) > 0x4000 {
-		buffer := make([]uint8, 0x2000, 0x4000)
-		diff := len(s.outputBuffer) - len(buffer)
+	if s.outputBufferPosition > prsBufferThreshold {
+		diff := s.outputBufferPosition - prsBufferLookbehind
 
-		copy(buffer, s.outputBuffer[diff:])
+		copy(s.buffer[:prsBufferLookbehind], s.buffer[diff:])
 		s.outputPosition -= diff
-		s.outputBuffer = buffer
+		s.outputBufferPosition = prsBufferLookbehind
 	}
 }
 
@@ -139,7 +144,7 @@ func (s *prsReader) Read(p []byte) (n int, err error) {
 
 	// Buffer decompressed output
 	for len(p) > 0 && err == nil {
-		if len(s.outputBuffer) <= s.outputPosition {
+		if s.outputBufferPosition <= s.outputPosition {
 			if err = s.decompress(); err != nil {
 				break
 			}
@@ -149,7 +154,7 @@ func (s *prsReader) Read(p []byte) (n int, err error) {
 			p = p[:int(s.size - s.position)]
 		}
 
-		read := copy(p, s.outputBuffer[s.outputPosition:])
+		read := copy(p, s.buffer[s.outputPosition:s.outputBufferPosition])
 		n += read
 		s.outputPosition += read
 		s.position += int64(read)
@@ -195,7 +200,7 @@ func (s *prsReader) Seek(offset int64, whence int) (pos int64, err error) {
 	if offset < int64(s.position) {
 		s.reader.Seek(0, 0)
 		s.controlPos = 1
-		s.outputBuffer = nil
+		s.outputBufferPosition = 0
 		s.outputPosition = 0
 		s.position = 0
 		s.err = nil
@@ -222,5 +227,5 @@ func (s *prsReader) Size() int64 {
 }
 
 func newPrsReader(reader io.ReadSeeker, size int64) *prsReader {
-	return &prsReader{reader, 1, 0, make([]uint8, 0, 0x4800), 0, size, 0, nil}
+	return &prsReader{reader, 1, 0, [prsBufferSize]uint8{}, [1]uint8{}, 0, 0, size, 0, nil}
 }
