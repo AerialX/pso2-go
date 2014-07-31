@@ -18,7 +18,7 @@ clean:
 
 pso2-ice: $(ICE_GO) $(wildcard cmd/pso2-ice/*.go)
 pso2-text: $(TEXT_GO) $(wildcard cmd/pso2-text/*.go)
-pso2-trans: $(TRANS_GO) $(TEXT_GO) $(wildcard cmd/pso2-trans/*.go)
+pso2-trans: $(TRANS_GO) $(TEXT_GO) $(ICE_GO) $(wildcard cmd/pso2-trans/*.go)
 pso2-afp: $(AFP_GO) $(wildcard cmd/pso2-afp/*.go)
 pso2-net: $(NET_GO) $(NET_PACKETS_GO) $(wildcard cmd/pso2-net/*.go)
 
