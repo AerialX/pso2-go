@@ -54,6 +54,10 @@ func main() {
 				t.Entries[i].Text = "LOLOLOL"
 			}
 		}
+
+		for _, p := range t.Pairs {
+			fmt.Printf("%s: %s\n", p.Identifier, p.String)
+		}
 	}
 
 	if flagWrite != "" {

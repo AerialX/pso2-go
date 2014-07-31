@@ -9,10 +9,19 @@ import (
 	bin "encoding/binary"
 )
 
+const textBufferThreshold = 0x80000
+const textBufferDataThreshold = 0x800000
+
+type TextPair struct {
+	Identifier, String string
+}
+
 type TextFile struct {
 	Entries []TextEntry
 
-	Pairs map[string]string
+	Pairs []TextPair
+
+	hasNEND bool
 }
 
 type TextEntry struct {
@@ -28,7 +37,7 @@ const (
 )
 
 func NewTextFile(reader io.ReadSeeker) (*TextFile, error) {
-	f := &TextFile{nil, make(map[string]string)}
+	f := &TextFile{nil, nil, true}
 	return f, f.parse(reader)
 }
 
@@ -43,7 +52,7 @@ func (t *TextFile) parse(r io.ReadSeeker) (err error) {
 		return errors.New("NIFL tag expected")
 	}
 
-	reader := binary.BinaryReader{ nifl.Data, binary.LittleEndian };
+	reader := binary.BinaryReader{ nifl.Data, binary.LittleEndian }
 
 	type niflHeaderType struct {
 		Unk, OffsetREL0, SizeREL0, OffsetNOF0, SizeNOF0 uint32
@@ -72,7 +81,7 @@ func (t *TextFile) parse(r io.ReadSeeker) (err error) {
 		return errors.New("NOF0 tag expected")
 	}
 
-	nof0reader := binary.BinaryReader{ nof0.Data, binary.LittleEndian };
+	nof0reader := binary.BinaryReader{ nof0.Data, binary.LittleEndian }
 	count, err := nof0reader.Uint32()
 	offsets := make([]uint32, int(count) + 1)
 	i := 0
@@ -92,17 +101,38 @@ func (t *TextFile) parse(r io.ReadSeeker) (err error) {
 	_, err = r.Seek(int64((nof0.Size + 8 + 0x0f) / 0x10 * 0x10) - 8, 1)
 
 	nend, err := TagRead(r)
-	if nend.Tag != "NEND" {
+	if err == io.EOF || (nend.Tag == "" && nend.Size == 0) {
+		t.hasNEND = false
+	} else if nend.Tag != "NEND" {
 		return errors.New("NEND tag expected")
+	} else {
+		t.hasNEND = true
 	}
 
 	t.Entries = make([]TextEntry, len(offsets))
 
-	reader = binary.BinaryReader{ rel0.Data, binary.LittleEndian };
+	var rel0data io.ReadSeeker
+	var rel0strings io.ReadSeeker
+	reader = binary.BinaryReader{ rel0.Data, binary.LittleEndian }
 	rel0size, err := reader.Uint32()
-	rel0data := io.NewSectionReader(util.ReaderAt(rel0.Data), 8, int64(rel0size))
-	rel0strings := io.NewSectionReader(util.ReaderAt(rel0.Data), int64(rel0size), int64(rel0.Size - rel0size))
-	rel0reader := binary.BinaryReader{ rel0data, binary.LittleEndian };
+	rel0data = io.NewSectionReader(util.ReaderAt(rel0.Data), 8, int64(rel0size))
+	rel0strings = io.NewSectionReader(util.ReaderAt(rel0.Data), int64(rel0size), int64(rel0.Size - rel0size))
+
+	if rel0size < textBufferDataThreshold {
+		rel0data, err = util.MemReader(rel0data)
+		if err != nil {
+			return err
+		}
+	}
+
+	if rel0.Size - rel0size < textBufferThreshold {
+		rel0strings, err = util.MemReader(rel0strings)
+		if err != nil {
+			return err
+		}
+	}
+
+	rel0reader := binary.BinaryReader{ rel0data, binary.LittleEndian }
 
 	pairMode := false
 	var pair *string
@@ -131,7 +161,7 @@ func (t *TextFile) parse(r io.ReadSeeker) (err error) {
 
 			if pair != nil {
 				entry.TextStatus = TextEntryString
-				t.Pairs[*pair] = entry.Text
+				t.Pairs = append(t.Pairs, TextPair{*pair, entry.Text})
 				pair = nil
 			} else {
 				entry.TextStatus = TextEntryIdentifier
@@ -268,10 +298,12 @@ func (t *TextFile) Write(writer io.Writer) error {
 
 	writer.Write(make([]uint8, nof0sizeRounded - nof0size))
 
-	io.WriteString(writer, "NEND")
-	bin.Write(writer, end, uint32(0x08))
-	bin.Write(writer, end, uint32(0))
-	bin.Write(writer, end, uint32(0))
+	if t.hasNEND {
+		io.WriteString(writer, "NEND")
+		bin.Write(writer, end, uint32(0x08))
+		bin.Write(writer, end, uint32(0))
+		bin.Write(writer, end, uint32(0))
+	}
 
 	return nil
 }
