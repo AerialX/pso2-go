@@ -122,22 +122,8 @@ func (d *Database) queryArchive(rows *sql.Rows) (a *Archive, err error) {
 	return
 }
 
-func (d *Database) QueryArchive(name *ArchiveName) (a *Archive, err error) {
-	rows, err := d.query(sqlQueryArchive + "WHERE name = ?", name[:])
-	if err != nil {
-		return nil, err
-	}
-
-	if rows.Next() {
-		a, err = d.queryArchive(rows)
-	}
-
-	rows.Close()
-	return
-}
-
-func (d *Database) QueryArchives() (archives []Archive, err error) {
-	rows, err := d.query(sqlQueryArchive)
+func (d *Database) queryArchives(query string, args ...interface{}) (archives []Archive, err error) {
+	rows, err := d.query(query, args...)
 	if err != nil {
 		return
 	}
@@ -154,6 +140,35 @@ func (d *Database) QueryArchives() (archives []Archive, err error) {
 
 	rows.Close()
 	return
+}
+
+func (d *Database) QueryArchive(name *ArchiveName) (a *Archive, err error) {
+	rows, err := d.query(sqlQueryArchive + "WHERE name = ?", name[:])
+	if err != nil {
+		return nil, err
+	}
+
+	if rows.Next() {
+		a, err = d.queryArchive(rows)
+	}
+
+	rows.Close()
+	return
+}
+
+func (d *Database) QueryArchives() (archives []Archive, err error) {
+	return d.queryArchives(sqlQueryArchive)
+}
+
+func (d *Database) QueryArchivesTranslation(t *Translation) (archives []Archive, err error) {
+	return d.queryArchives(`
+		SELECT a.archiveid, a.name
+		FROM translationstrings AS ts
+			JOIN strings AS s ON s.stringid = ts.stringid
+			JOIN files AS f ON f.fileid = s.fileid
+			JOIN archives AS a ON a.archiveid = f.archiveid
+		WHERE ts.translationid = ?
+		GROUP BY a.archiveid`, t.id)
 }
 
 func (d *Database) InsertFile(a *Archive, name string) (f *File, err error) {
@@ -194,8 +209,8 @@ func (d *Database) QueryFile(a *Archive, name string) (f *File, err error) {
 	return
 }
 
-func (d *Database) QueryFiles() (files []File, err error) {
-	rows, err := d.query(sqlQueryFile)
+func (d *Database) QueryFiles(a *Archive) (files []File, err error) {
+	rows, err := d.query(sqlQueryFile + "WHERE archiveid = ?", a.id)
 	if err != nil {
 		return
 	}
@@ -251,6 +266,20 @@ func (d *Database) queryString(rows *sql.Rows) (s *String, err error) {
 
 func (d *Database) QueryString(f *File, collision int, id string) (s *String, err error) {
 	rows, err := d.query(sqlQueryString + "WHERE collision = ? AND identifier = ?", collision, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if rows.Next() {
+		s, err = d.queryString(rows)
+	}
+
+	rows.Close()
+	return
+}
+
+func (d *Database) QueryStringTranslation(t *TranslationString) (s *String, err error) {
+	rows, err := d.query(sqlQueryString + "WHERE stringid = ?", t.stringid)
 	if err != nil {
 		return nil, err
 	}
@@ -352,6 +381,17 @@ func (d *Database) InsertTranslationString(t *Translation, f *String, translatio
 	return
 }
 
+func (d *Database) UpdateTranslationString(f *TranslationString, value string) (s *TranslationString, err error) {
+	_, err = d.exec("UPDATE translationstrings SET translation = ? WHERE translationid = ? AND stringid = ?", value, f.translationid, f.stringid)
+	if err != nil {
+		return
+	}
+
+	s = &TranslationString{f.translationid, f.stringid, d, value}
+
+	return
+}
+
 const sqlQueryTranslationString = "SELECT translationid, stringid, translation FROM translationstrings "
 func (d *Database) queryTranslationString(rows *sql.Rows) (s *TranslationString, err error) {
 	s = &TranslationString{}
@@ -361,6 +401,26 @@ func (d *Database) queryTranslationString(rows *sql.Rows) (s *TranslationString,
 		s = nil
 	}
 
+	return
+}
+
+func (d *Database) queryTranslationStrings(query string, args ...interface{}) (strings []TranslationString, err error) {
+	rows, err := d.query(query, args...)
+	if err != nil {
+		return
+	}
+
+	for rows.Next() {
+		var s *TranslationString
+		s, err = d.queryTranslationString(rows)
+		if err != nil {
+			break
+		}
+
+		strings = append(strings, *s)
+	}
+
+	rows.Close()
 	return
 }
 
@@ -379,21 +439,24 @@ func (d *Database) QueryTranslationString(t *Translation, f *String) (s *Transla
 }
 
 func (d *Database) QueryTranslationStrings(t *Translation) (strings []TranslationString, err error) {
-	rows, err := d.query(sqlQueryTranslationString)
-	if err != nil {
-		return
-	}
+	return d.queryTranslationStrings(sqlQueryTranslationString + "WHERE translationid = ?", t)
+}
 
-	for rows.Next() {
-		var s *TranslationString
-		s, err = d.queryTranslationString(rows)
-		if err != nil {
-			break
-		}
+func (d *Database) QueryTranslationStringsFile(t *Translation, f *File) (strings []TranslationString, err error) {
+	return d.queryTranslationStrings(`
+		SELECT ts.translationid, ts.stringid, ts.translation
+		FROM translationstrings AS ts
+			JOIN strings AS s ON s.stringid = ts.stringid
+		WHERE ts.translationid = ? AND s.fileid = ?`, t.id, f.id)
+}
 
-		strings = append(strings, *s)
-	}
-
-	rows.Close()
+func (d *Database) Strip() (err error) {
+	_, err = d.db.Exec(`
+		UPDATE strings SET value = '', version = 0;
+		DELETE FROM strings WHERE NOT stringid IN (SELECT stringid FROM translationstrings);
+		DELETE FROM files WHERE NOT fileid IN (SELECT fileid FROM strings);
+		DELETE FROM archives WHERE NOT archiveid IN (SELECT archiveid FROM files);
+		VACUUM;
+	`)
 	return
 }
