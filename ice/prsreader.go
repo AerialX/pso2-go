@@ -1,6 +1,9 @@
 package ice
 
-import "io"
+import (
+	"io"
+	"errors"
+)
 
 // Reference: https://github.com/Grumbel/rfactortools/blob/master/other/quickbms/src/compression/prs.cpp
 // (modification: long copy sizes are readByte() + 10, not +1 as that source mentions)
@@ -8,6 +11,8 @@ import "io"
 const prsBufferSize = 0x10000
 const prsBufferThreshold = prsBufferSize - 0x400
 const prsBufferLookbehind = 0x2000
+
+var prsEOF = errors.New("prsEOF")
 
 type prsReader struct {
 	reader io.ReadSeeker
@@ -22,8 +27,11 @@ type prsReader struct {
 }
 
 func (s *prsReader) readByte() (ret uint8, err error) {
-	_, err = s.reader.Read(s.byteBuffer[:])
+	n, err := s.reader.Read(s.byteBuffer[:])
 	ret = s.byteBuffer[0]
+	if n == 1 {
+		err = nil
+	}
 	return
 }
 
@@ -67,7 +75,7 @@ func (s *prsReader) decompress() error {
 			}
 
 			if offset == 0 {
-				return io.EOF
+				return prsEOF
 			}
 
 			size = int(lsb & 0x07)
@@ -166,6 +174,12 @@ func (s *prsReader) Read(p []byte) (n int, err error) {
 	}
 
 	s.err = err
+
+	if err == io.EOF {
+		err = io.ErrUnexpectedEOF
+	} else if err == prsEOF {
+		err = io.EOF
+	}
 
 	if err == io.EOF && s.position < s.size {
 		read := int(s.size - s.position)
