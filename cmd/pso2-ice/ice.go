@@ -130,7 +130,7 @@ func main() {
 			for _, file := range group.Files {
 				if newpath, ok := flagReplace[file.Name]; ok {
 					if newpath == "" {
-						a.ReplaceFile(file, nil, 0)
+						a.ReplaceFile(&file, nil, 0)
 					} else {
 						newfile, err := os.Open(newpath)
 						ragequit(newpath, err)
@@ -142,7 +142,7 @@ func main() {
 							ragequit(newpath, errors.New("file too large"))
 						}
 
-						a.ReplaceFile(file, newfile, uint32(st.Size()))
+						a.ReplaceFile(&file, newfile, uint32(st.Size()))
 					}
 				}
 			}
