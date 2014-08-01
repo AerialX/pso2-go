@@ -14,6 +14,8 @@ const textBufferDataThreshold = 0x800000
 
 type TextPair struct {
 	Identifier, String string
+
+	identifierIndex, stringIndex int
 }
 
 type TextFile struct {
@@ -136,6 +138,7 @@ func (t *TextFile) parse(r io.ReadSeeker) (err error) {
 
 	pairMode := false
 	var pair *string
+	var pairi int
 	for i, offset := range offsets {
 		entry := &t.Entries[i]
 
@@ -161,12 +164,13 @@ func (t *TextFile) parse(r io.ReadSeeker) (err error) {
 
 			if pair != nil {
 				entry.TextStatus = TextEntryString
-				t.Pairs = append(t.Pairs, TextPair{*pair, entry.Text})
+				t.Pairs = append(t.Pairs, TextPair{*pair, entry.Text, pairi, i})
 				pair = nil
 			} else {
 				entry.TextStatus = TextEntryIdentifier
 				if pairMode {
 					pair = &entry.Text
+					pairi = i
 				}
 			}
 		}
@@ -306,4 +310,12 @@ func (t *TextFile) Write(writer io.Writer) error {
 	}
 
 	return nil
+}
+
+func (t *TextFile) PairIdentifier(p *TextPair) *TextEntry {
+	return &t.Entries[p.identifierIndex]
+}
+
+func (t *TextFile) PairString(p *TextPair) *TextEntry {
+	return &t.Entries[p.stringIndex]
 }
