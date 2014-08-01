@@ -62,7 +62,7 @@ func (h handlerDump) HandlePacket(c *Connection, p *packets.Packet) (bool, error
 	_, portLocal, _ := net.SplitHostPort(c.LocalAddr().String())
 	filename := path.Join(h.location, fmt.Sprintf("%s-%s-%s.dump", host, portLocal, portRemote))
 
-	f, err := os.OpenFile(filename, os.O_WRONLY | os.O_CREATE | os.O_APPEND, 0777)
+	f, err := os.OpenFile(filename, os.O_WRONLY | os.O_CREATE | os.O_APPEND, 0666)
 
 	if err != nil {
 		Logger.Warningf("%s error opening dump file %s. %s", c, filename, err)
