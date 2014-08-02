@@ -457,6 +457,7 @@ func (d *Database) Strip() (err error) {
 		DELETE FROM files WHERE NOT fileid IN (SELECT fileid FROM strings);
 		DELETE FROM archives WHERE NOT archiveid IN (SELECT archiveid FROM files);
 		VACUUM;
+		ANALYZE;
 	`)
 	return
 }
