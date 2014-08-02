@@ -22,8 +22,6 @@ type TextFile struct {
 	Entries []TextEntry
 
 	Pairs []TextPair
-
-	hasNEND bool
 }
 
 type TextEntry struct {
@@ -39,7 +37,7 @@ const (
 )
 
 func NewTextFile(reader io.ReadSeeker) (*TextFile, error) {
-	f := &TextFile{nil, nil, true}
+	f := &TextFile{nil, nil}
 	return f, f.parse(reader)
 }
 
@@ -76,6 +74,27 @@ func (t *TextFile) parse(r io.ReadSeeker) (err error) {
 		return errors.New("REL0 tag expected")
 	}
 
+	var rel0data io.ReadSeeker
+	var rel0strings io.ReadSeeker
+	reader = binary.BinaryReader{ rel0.Data, binary.LittleEndian }
+	rel0size, err := reader.Uint32()
+	rel0data = io.NewSectionReader(util.ReaderAt(rel0.Data), 8, int64(rel0size) - 8)
+	rel0strings = io.NewSectionReader(util.ReaderAt(rel0.Data), int64(rel0size), int64(rel0.Size - rel0size))
+
+	if rel0size < textBufferDataThreshold {
+		rel0data, err = util.MemReader(rel0data)
+		if err != nil {
+			return err
+		}
+	}
+
+	if rel0.Size - rel0size < textBufferThreshold {
+		rel0strings, err = util.MemReader(rel0strings)
+		if err != nil {
+			return err
+		}
+	}
+
 	r.Seek(int64(niflHeader.OffsetNOF0), 0)
 
 	nof0, err := TagRead(r)
@@ -100,39 +119,7 @@ func (t *TextFile) parse(r io.ReadSeeker) (err error) {
 	}
 	offsets[i] = 8
 
-	_, err = r.Seek(int64((nof0.Size + 8 + 0x0f) / 0x10 * 0x10) - 8, 1)
-
-	nend, err := TagRead(r)
-	if err == io.EOF || (nend.Tag == "" && nend.Size == 0) {
-		t.hasNEND = false
-	} else if nend.Tag != "NEND" {
-		return errors.New("NEND tag expected")
-	} else {
-		t.hasNEND = true
-	}
-
 	t.Entries = make([]TextEntry, len(offsets))
-
-	var rel0data io.ReadSeeker
-	var rel0strings io.ReadSeeker
-	reader = binary.BinaryReader{ rel0.Data, binary.LittleEndian }
-	rel0size, err := reader.Uint32()
-	rel0data = io.NewSectionReader(util.ReaderAt(rel0.Data), 8, int64(rel0size))
-	rel0strings = io.NewSectionReader(util.ReaderAt(rel0.Data), int64(rel0size), int64(rel0.Size - rel0size))
-
-	if rel0size < textBufferDataThreshold {
-		rel0data, err = util.MemReader(rel0data)
-		if err != nil {
-			return err
-		}
-	}
-
-	if rel0.Size - rel0size < textBufferThreshold {
-		rel0strings, err = util.MemReader(rel0strings)
-		if err != nil {
-			return err
-		}
-	}
 
 	rel0reader := binary.BinaryReader{ rel0data, binary.LittleEndian }
 
@@ -174,6 +161,13 @@ func (t *TextFile) parse(r io.ReadSeeker) (err error) {
 				}
 			}
 		}
+	}
+
+	_, err = r.Seek(int64((nof0.Size + 8 + 0x0f) / 0x10 * 0x10) - 8, 1)
+
+	nend, err := TagRead(r)
+	if nend.Tag != "NEND" {
+		return errors.New("NEND tag expected")
 	}
 
 	return err
@@ -302,12 +296,10 @@ func (t *TextFile) Write(writer io.Writer) error {
 
 	writer.Write(make([]uint8, nof0sizeRounded - nof0size))
 
-	if t.hasNEND {
-		io.WriteString(writer, "NEND")
-		bin.Write(writer, end, uint32(0x08))
-		bin.Write(writer, end, uint32(0))
-		bin.Write(writer, end, uint32(0))
-	}
+	io.WriteString(writer, "NEND")
+	bin.Write(writer, end, uint32(0x08))
+	bin.Write(writer, end, uint32(0))
+	bin.Write(writer, end, uint32(0))
 
 	return nil
 }
