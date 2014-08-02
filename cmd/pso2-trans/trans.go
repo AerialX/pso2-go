@@ -236,7 +236,9 @@ func main() {
 
 				file := archive.FindFile(-1, f.Name)
 				if file == nil {
-					complain(f.Name, errors.New("file not found"))
+					if complain(f.Name, errors.New("file not found")) {
+						continue
+					}
 				}
 				textfile, err := text.NewTextFile(file.Data)
 
