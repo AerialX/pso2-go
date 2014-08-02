@@ -265,7 +265,7 @@ func (d *Database) queryString(rows *sql.Rows) (s *String, err error) {
 }
 
 func (d *Database) QueryString(f *File, collision int, id string) (s *String, err error) {
-	rows, err := d.query(sqlQueryString + "WHERE collision = ? AND identifier = ?", collision, id)
+	rows, err := d.query(sqlQueryString + "WHERE fileid = ? AND collision = ? AND identifier = ?", f.id, collision, id)
 	if err != nil {
 		return nil, err
 	}
