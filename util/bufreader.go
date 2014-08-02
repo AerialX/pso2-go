@@ -46,7 +46,8 @@ func (b *bufReader) Seek(offset int64, whence int) (n int64, err error) {
 		n = b.position
 	} else {
 		if whence == 1 {
-			b.position, err = b.reader.Seek(b.position + offset, 0)
+			n, err = b.reader.Seek(b.position + offset, 0)
+			b.position = n
 		} else {
 			n, err = b.reader.Seek(offset, whence)
 			b.position = n
