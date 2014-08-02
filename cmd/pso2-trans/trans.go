@@ -217,6 +217,8 @@ func main() {
 				continue
 			}
 
+			fileDirty := false
+
 			fmt.Fprintf(os.Stderr, "\tParsing text files...\n")
 			var textfiles []*os.File
 			for _, f := range files {
@@ -255,8 +257,11 @@ func main() {
 						continue
 					}
 
-					entry := textfile.PairString(&p)
-					entry.Text = ts.Translation
+					if p.String != ts.Translation {
+						entry := textfile.PairString(&p)
+						entry.Text = ts.Translation
+						fileDirty = true
+					}
 				}
 
 				tf, err := ioutil.TempFile("", "")
@@ -281,34 +286,38 @@ func main() {
 				textfiles = append(textfiles, tf)
 			}
 
-			fmt.Fprintf(os.Stderr, "\tWriting modified archive...\n")
-			ofile, err := ioutil.TempFile("", "")
+			if fileDirty {
+				fmt.Fprintf(os.Stderr, "\tWriting modified archive...\n")
+				ofile, err := ioutil.TempFile("", "")
 
-			if !complain(aname, err) {
-				writer := bufio.NewWriter(ofile)
-				err = archive.Write(writer)
-				writer.Flush()
-				ofile.Close()
+				if !complain(aname, err) {
+					writer := bufio.NewWriter(ofile)
+					err = archive.Write(writer)
+					writer.Flush()
+					ofile.Close()
 
-				if flagBackup != "" {
-					opath := path.Join(flagBackup, path.Base(aname))
-					err = os.Rename(aname, opath)
-					if err != nil {
-						err = util.CopyFile(aname, opath)
+					if flagBackup != "" {
+						opath := path.Join(flagBackup, path.Base(aname))
+						err = os.Rename(aname, opath)
+						if err != nil {
+							err = util.CopyFile(aname, opath)
+						}
+					}
+
+					if complain(aname, err) {
+						os.Remove(ofile.Name())
+					} else {
+						err = os.Rename(ofile.Name(), aname)
+						if err != nil {
+							err = util.CopyFile(ofile.Name(), aname)
+							os.Remove(ofile.Name())
+						}
+						complain(aname, err)
 					}
 				}
-
-				if complain(aname, err) {
-					os.Remove(ofile.Name())
-				} else {
-					err = os.Rename(ofile.Name(), aname)
-					if err != nil {
-						err = util.CopyFile(ofile.Name(), aname)
-					}
-					complain(aname, err)
-				}
+			} else {
+				fmt.Fprintf(os.Stderr, "\tArchive left unmodified\n")
 			}
-
 
 			for _, tf := range textfiles {
 				tf.Close()
