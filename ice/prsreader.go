@@ -8,7 +8,7 @@ import (
 // Reference: https://github.com/Grumbel/rfactortools/blob/master/other/quickbms/src/compression/prs.cpp
 // (modification: long copy sizes are readByte() + 10, not +1 as that source mentions)
 
-const prsBufferSize = 0x10000
+const prsBufferSize = 0x80000
 const prsBufferThreshold = prsBufferSize - 0x400
 const prsBufferLookbehind = 0x2000
 
