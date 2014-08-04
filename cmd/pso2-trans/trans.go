@@ -151,12 +151,20 @@ func main() {
 				c[identifier] = collision + 1
 
 				a, err := db.QueryArchive(&aname)
-				if complain(path.Dir(line[0]), err) {
+				if complain(archive, err) {
+					continue
+				}
+
+				if a == nil && complain(archive, errors.New("archive not found in database")) {
 					continue
 				}
 
 				f, err := db.QueryFile(a, fname)
 				if complain(fname, err) {
+					continue
+				}
+
+				if f == nil && complain(archive + ": " + fname, errors.New("file not found in database")) {
 					continue
 				}
 
@@ -317,6 +325,9 @@ func main() {
 		pso2dir := flag.Arg(1)
 		if flagOutput == "" {
 			flagOutput = pso2dir
+		} else {
+			err := os.MkdirAll(flagOutput, 0777)
+			ragequit(flagOutput, err)
 		}
 
 		translation, err := db.QueryTranslation(flagTrans)
