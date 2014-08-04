@@ -6,20 +6,19 @@ import (
 	"fmt"
 	"flag"
 	"path"
-	"bufio"
 	"errors"
 	"strings"
 	"runtime"
-	"io/ioutil"
 	"encoding/csv"
 	"aaronlindsay.com/go/pkg/pso2/ice"
 	"aaronlindsay.com/go/pkg/pso2/text"
 	"aaronlindsay.com/go/pkg/pso2/util"
 	"aaronlindsay.com/go/pkg/pso2/trans"
+	"aaronlindsay.com/go/pkg/pso2/trans/cmd"
 )
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: pso2-trans [flags] db.sqlite [...]")
+	fmt.Fprintln(os.Stderr, "usage: pso2-trans [flags] pso2.db [...]")
 	flag.PrintDefaults()
 	os.Exit(2)
 }
@@ -330,180 +329,12 @@ func main() {
 			ragequit(flagOutput, err)
 		}
 
-		translation, err := db.QueryTranslation(flagTrans)
-		ragequit(flagTrans, err)
-
-		archives, err := db.QueryArchivesTranslation(translation)
-		ragequit(dbpath, err)
-
-		queue := make(chan *trans.Archive)
-		done := make(chan bool)
-
-		for i := 0; i < flagParallel; i++ {
-			go func() {
-				for {
-					a, ok := <-queue
-					if !ok {
-						break
-					}
-
-					aname := path.Join(pso2dir, a.Name.String())
-					fmt.Fprintf(os.Stderr, "Opening archive `%s`...\n", aname)
-					af, err := os.OpenFile(aname, os.O_RDONLY, 0);
-					if complain(aname, err) {
-						continue
-					}
-
-					archive, err := ice.NewArchive(util.BufReader(af))
-					if complain(aname, err) {
-						continue
-					}
-
-					files, err := db.QueryFiles(a)
-					if complain(aname, err) {
-						continue
-					}
-
-					fileDirty := false
-
-					fmt.Fprintf(os.Stderr, "\tParsing text files...\n")
-					var textfiles []*os.File
-					for _, f := range files {
-						tstrings, err := db.QueryTranslationStringsFile(translation, &f)
-						if complain(f.Name, err) || len(tstrings) == 0 {
-							continue
-						}
-
-						fmt.Fprintf(os.Stderr, "\t\t%s\n", f.Name)
-
-						strings := make([]*trans.String, len(tstrings))
-						for i, ts := range tstrings {
-							strings[i], err = db.QueryStringTranslation(&ts)
-						}
-
-						file := archive.FindFile(-1, f.Name)
-						if file == nil {
-							if complain(f.Name, errors.New("file not found")) {
-								continue
-							}
-						}
-						textfile, err := text.NewTextFile(file.Data)
-
-						collisions := make(map[string]int)
-
-						for _, p := range textfile.Pairs {
-							collision := collisions[p.Identifier]
-							collisions[p.Identifier] = collision + 1
-
-							var ts *trans.TranslationString
-							for i, s := range strings {
-								if s.Identifier == p.Identifier && s.Collision == collision {
-									ts = &tstrings[i]
-									break
-								}
-							}
-							if ts == nil {
-								continue
-							}
-
-							if p.String != ts.Translation {
-								entry := textfile.PairString(&p)
-								entry.Text = ts.Translation
-								fileDirty = true
-							}
-						}
-
-						tf, err := ioutil.TempFile("", "")
-						if complain(f.Name, err) {
-							continue
-						}
-
-						fmt.Fprintf(os.Stderr, "\t\t\tRewriting...\n")
-
-						writer := bufio.NewWriter(tf)
-						err = textfile.Write(writer)
-						writer.Flush()
-						if complain(tf.Name(), err) {
-							tf.Close()
-							os.Remove(tf.Name())
-							continue
-						}
-						pos, _ := tf.Seek(0, 1)
-						tf.Seek(0, 0)
-
-						archive.ReplaceFile(file, tf, uint32(pos))
-						textfiles = append(textfiles, tf)
-					}
-
-					if fileDirty {
-						fmt.Fprintf(os.Stderr, "\tWriting modified archive...\n")
-						ofile, err := ioutil.TempFile("", "")
-
-						aname := path.Join(flagOutput, a.Name.String())
-
-						if !complain(aname, err) {
-							writer := bufio.NewWriter(ofile)
-							err = archive.Write(writer)
-							writer.Flush()
-							ofile.Close()
-
-							if flagBackup != "" {
-								opath := path.Join(flagBackup, path.Base(aname))
-								err = os.Rename(aname, opath)
-								if err != nil {
-									err = util.CopyFile(aname, opath)
-								}
-							}
-
-							if complain(aname, err) {
-								os.Remove(ofile.Name())
-							} else {
-								err = os.Rename(ofile.Name(), aname)
-								if err != nil {
-									err = util.CopyFile(ofile.Name(), aname)
-									os.Remove(ofile.Name())
-								}
-								complain(aname, err)
-							}
-						}
-					} else {
-						fmt.Fprintf(os.Stderr, "\tArchive left unmodified\n")
-					}
-
-					for _, tf := range textfiles {
-						tf.Close()
-						os.Remove(tf.Name())
-					}
-
-					af.Close()
-				}
-
-				done <-true
-			}()
-		}
-
-		for i := range archives {
-			queue <-&archives[i]
-		}
-		close(queue)
-
-		for i := 0; i < flagParallel; i++ {
-			<-done
-		}
+		cmd.PatchFiles(db, dbpath, pso2dir, flagTrans, flagBackup, flagOutput, flagParallel)
 	}
 
 	db.Close()
 
 	if flagStrip != "" {
-		err = util.CopyFile(dbpath, flagStrip)
-		ragequit(flagStrip, err)
-
-		db, err := trans.NewDatabase(flagStrip)
-		ragequit(flagStrip, err)
-
-		err = db.Strip()
-		ragequit(flagStrip, err)
-
-		db.Close()
+		cmd.StripDatabase(dbpath, flagStrip)
 	}
 }
