@@ -66,7 +66,7 @@ func success(scratch string) {
 }
 
 func main() {
-	var flagPrint, flagAll, flagCheck, flagHash, flagDownload, flagUpdate bool
+	var flagPrint, flagAll, flagCheck, flagHash, flagDownload, flagUpdate, flagGarbage bool
 	var flagParallel int
 
 	flag.Usage = usage
@@ -77,7 +77,13 @@ func main() {
 	flag.IntVar(&flagParallel, "j", 3, "max parallel downloads")
 	flag.BoolVar(&flagPrint, "p", false, "print verbose information")
 	flag.BoolVar(&flagUpdate, "u", false, "update patchlist")
+	flag.BoolVar(&flagGarbage, "g", false, "clean up old/unused files")
 	flag.Parse()
+
+	maxprocs := runtime.GOMAXPROCS(0)
+	if maxprocs < flagParallel {
+		runtime.GOMAXPROCS(flagParallel)
+	}
 
 	if flagHash {
 		flagCheck = true
@@ -294,10 +300,10 @@ func main() {
 		pbar.ShowSpeed = true
 		pbar.Start()
 
-		queue := make(chan *download.PatchEntry, flagParallel)
+		queue := make(chan *download.PatchEntry)
 		done := make(chan bool)
 
-		go func() {
+		for i := 0; i < flagParallel; i++ {
 			complain := func(apath string, err error) bool {
 				if complain(apath, err) {
 					errorCount++
@@ -307,67 +313,72 @@ func main() {
 				return false
 			}
 
-			h := md5.New()
+			go func() {
+				h := md5.New()
 
-			for {
-				e, ok := <-queue
-				if !ok {
-					break
-				}
+				for {
+					e, ok := <-queue
+					if !ok {
+						break
+					}
 
-				filepath := path.Join(pso2path, download.RemoveExtension(e.Path))
+					filepath := path.Join(pso2path, download.RemoveExtension(e.Path))
 
-				err := os.MkdirAll(path.Dir(filepath), 0777)
-				ragequit(path.Dir(filepath), err)
+					err := os.MkdirAll(path.Dir(filepath), 0777)
+					ragequit(path.Dir(filepath), err)
 
-				pathUrl, err := e.URL()
-				ragequit(e.Path, err)
+					pathUrl, err := e.URL()
+					ragequit(e.Path, err)
 
-				resp, err := download.Request(pathUrl.String())
-				if complain(pathUrl.String(), err) {
-					continue
-				}
+					resp, err := download.Request(pathUrl.String())
+					if complain(pathUrl.String(), err) {
+						continue
+					}
 
-				if resp.StatusCode != 200 {
-					complain(pathUrl.String(), errors.New(resp.Status))
-					continue
-				}
+					if resp.StatusCode != 200 {
+						complain(pathUrl.String(), errors.New(resp.Status))
+						continue
+					}
 
-				if resp.ContentLength >= 0 && resp.ContentLength != e.Size {
+					if resp.ContentLength >= 0 && resp.ContentLength != e.Size {
+						resp.Body.Close()
+						complain(pathUrl.String(), errors.New("invalid file size"))
+						continue
+					}
+
+					f, err := os.Create(filepath)
+					if complain(filepath, err) {
+						resp.Body.Close()
+						continue
+					}
+
+					h.Reset()
+					n, err := io.Copy(io.MultiWriter(f, h, pbar), resp.Body)
+
 					resp.Body.Close()
-					complain(pathUrl.String(), errors.New("invalid file size"))
-					continue
-				}
+					f.Close()
 
-				f, err := os.Create(filepath)
-				if complain(filepath, err) {
-					resp.Body.Close()
-					continue
-				}
-
-				h.Reset()
-				n, err := io.Copy(io.MultiWriter(f, h, pbar), resp.Body)
-
-				resp.Body.Close()
-				f.Close()
-
-				if !complain(filepath, err) {
-					if n != e.Size {
-						complain(pathUrl.String(), errors.New("download finished prematurely"))
-					} else if bytes.Compare(h.Sum(nil), e.MD5[:]) != 0 {
-						complain(pathUrl.String(), errors.New("download hash mismatch"))
+					if !complain(filepath, err) {
+						if n != e.Size {
+							complain(pathUrl.String(), errors.New("download finished prematurely"))
+						} else if bytes.Compare(h.Sum(nil), e.MD5[:]) != 0 {
+							complain(pathUrl.String(), errors.New("download hash mismatch"))
+						}
 					}
 				}
-			}
 
-			done <-true
-		}()
+				done <-true
+			}()
+		}
 
 		for _, e := range changes {
-			queue <- e
+			queue <-e
 		}
 		close(queue)
-		<-done
+
+		for i := 0; i < flagParallel; i++ {
+			<-done
+		}
 
 		pbar.Finish()
 
@@ -377,5 +388,36 @@ func main() {
 			fmt.Fprintln(os.Stderr, "Update complete!")
 			success(scratch)
 		}
+	}
+
+	if flagGarbage {
+		fmt.Fprintln(os.Stderr, "Deleting old, unused files...")
+		win32 := path.Join(pso2path, "data/win32")
+
+		f, err := os.Open(win32)
+		ragequit(win32, err)
+		garbageSize := int64(0)
+		for err == nil {
+			var files []os.FileInfo
+			files, err = f.Readdir(0x80)
+			for _, f := range files {
+				if f.IsDir() {
+					continue
+				}
+
+				e := patchlist.EntryMap[f.Name() + ".pat"]
+
+				if e == nil {
+					fmt.Fprintln(os.Stderr, "\t", f.Name())
+					garbageSize += f.Size()
+					win32 := path.Join(win32, f.Name())
+					err = os.Remove(win32)
+					complain(win32, err)
+				}
+			}
+		}
+		f.Close()
+
+		fmt.Fprintf(os.Stderr, "Done! Saved %0.2f MB of space.\n", float32(garbageSize) / 1024 / 1024)
 	}
 }
