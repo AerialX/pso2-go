@@ -26,7 +26,12 @@ func Request(urlStr string) (*http.Response, error) {
 	}
 	req.Header.Add("User-Agent", "AQUA_HTTP")
 
-	return httpClient.Do(req)
+	resp, err := httpClient.Do(req)
+	if err == nil && resp.StatusCode != 200 {
+		return resp, errors.New(urlStr + " " + resp.Status)
+	}
+
+	return resp, err
 }
 
 func DownloadList(urlStr string) (p *PatchList, err error) {
@@ -34,10 +39,6 @@ func DownloadList(urlStr string) (p *PatchList, err error) {
 
 	if err != nil {
 		return
-	}
-
-	if resp.StatusCode != 200 {
-		return nil, errors.New(resp.Status)
 	}
 
 	capHint := 20

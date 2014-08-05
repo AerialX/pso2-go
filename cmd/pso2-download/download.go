@@ -2,20 +2,16 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"flag"
 	"path"
-	"time"
-	"bufio"
-	"bytes"
-	"errors"
+	"strings"
 	"runtime"
 	"io/ioutil"
-	"crypto/md5"
-	"github.com/cheggaaa/pb"
+	"aaronlindsay.com/go/pkg/pso2/trans"
+	transcmd "aaronlindsay.com/go/pkg/pso2/trans/cmd"
 	"aaronlindsay.com/go/pkg/pso2/download"
-	"aaronlindsay.com/go/pkg/pso2/util"
+	"aaronlindsay.com/go/pkg/pso2/download/cmd"
 )
 
 func usage() {
@@ -29,7 +25,7 @@ func complain(apath string, err error) bool {
 		if apath != "" {
 			fmt.Fprintf(os.Stderr, "error with file `%s`\n", apath)
 		}
-		fmt.Fprintln(os.Stderr, err);
+		fmt.Fprintln(os.Stderr, err)
 		return true
 	}
 
@@ -42,31 +38,9 @@ func ragequit(apath string, err error) {
 	}
 }
 
-const (
-	pathPatchlist = "patchlist.txt"
-	pathPatchlistOld = "patchlist-old.txt"
-	pathPatchlistInstalled = "patchlist-installed.txt"
-	pathPatchlistOldInstalled = "patchlist-old-installed.txt"
-	pathVersion = "version.ver"
-	pathVersionInstalled = "version-installed.ver"
-)
-
-func success(scratch string) {
-	pathPatchlistInstalled := path.Join(scratch, pathPatchlistInstalled)
-	err := util.CopyFile(path.Join(scratch, pathPatchlist), pathPatchlistInstalled)
-	ragequit(pathPatchlistInstalled, err)
-
-	pathPatchlistOldInstalled := path.Join(scratch, pathPatchlistOldInstalled)
-	err = util.CopyFile(path.Join(scratch, pathPatchlistOld), pathPatchlistOldInstalled)
-	ragequit(pathPatchlistOldInstalled, err)
-
-	pathVersionInstalled := path.Join(scratch, pathVersionInstalled)
-	err = util.CopyFile(path.Join(scratch, pathVersion), pathVersionInstalled)
-	ragequit(pathVersionInstalled, err)
-}
-
 func main() {
-	var flagPrint, flagAll, flagCheck, flagHash, flagDownload, flagUpdate, flagGarbage bool
+	var flagPrint, flagAll, flagCheck, flagHash, flagDownload, flagUpdate, flagGarbage, flagLaunch, flagItemTranslation, flagBackup bool
+	var flagTranslate, flagPublicKey, flagDumpPublicKey string
 	var flagParallel int
 
 	flag.Usage = usage
@@ -74,15 +48,21 @@ func main() {
 	flag.BoolVar(&flagCheck, "c", false, "check files")
 	flag.BoolVar(&flagHash, "h", false, "check file hashes")
 	flag.BoolVar(&flagDownload, "d", false, "download files")
-	flag.IntVar(&flagParallel, "j", 3, "max parallel downloads")
-	flag.BoolVar(&flagPrint, "p", false, "print verbose information")
-	flag.BoolVar(&flagUpdate, "u", false, "update patchlist")
+	flag.IntVar(&flagParallel, "p", 3, "max parallel downloads")
+	flag.BoolVar(&flagPrint, "v", false, "print verbose information")
+	flag.BoolVar(&flagUpdate, "u", false, "refresh patchlist")
 	flag.BoolVar(&flagGarbage, "g", false, "clean up old/unused files")
+	flag.BoolVar(&flagBackup, "b", false, "back up any modified files")
+	flag.BoolVar(&flagItemTranslation, "i", false, "enable the item translation")
+	flag.BoolVar(&flagLaunch, "l", false, "launch the game")
+	flag.StringVar(&flagTranslate, "t", "", "use the translation with the specified comma-separated names (example: eng,story-eng)")
+	flag.StringVar(&flagPublicKey, "pubkey", "", "inject a public key (path relative to pso2_bin)")
+	flag.StringVar(&flagDumpPublicKey, "dumppubkey", "", "dump the PSO2 public key (path relative to pso2_bin)")
 	flag.Parse()
 
 	maxprocs := runtime.GOMAXPROCS(0)
-	if maxprocs < flagParallel {
-		runtime.GOMAXPROCS(flagParallel)
+	if maxprocs < 0x10 {
+		runtime.GOMAXPROCS(0x10)
 	}
 
 	if flagHash {
@@ -95,47 +75,31 @@ func main() {
 		flag.PrintDefaults()
 	}
 
-	var err error
-
 	pso2path := flag.Arg(0)
-	scratch := path.Join(pso2path, "download")
 
-	err = os.Mkdir(scratch, 0777)
+	scratch := cmd.PathScratch(pso2path)
+	err := os.Mkdir(scratch, 0777)
 	if !os.IsExist(err) {
 		ragequit(scratch, err)
 	}
 
-	var version, installedVersion, netVersion string
-
-	fmt.Fprintln(os.Stderr, "Checking version...")
-	resp, err := download.Request(download.ProductionVersion)
-	if !complain(download.ProductionVersion, err) {
-		ver, err := ioutil.ReadAll(resp.Body)
-		resp.Body.Close()
-		if !complain(download.ProductionVersion, err) {
-			netVersion = string(ver)
-		}
+	flagTranslations := strings.Split(flagTranslate, ",")
+	if flagTranslate == "" {
+		flagTranslations = nil
 	}
 
-	pathVersion := path.Join(scratch, pathVersion)
-	f, err := os.Open(pathVersion)
-	if !complain(pathVersion, err) {
-		ver, err := ioutil.ReadAll(f)
-		f.Close()
-		if !complain(pathVersion, err) {
-			version = string(ver)
-		}
-	}
+	fmt.Fprintln(os.Stderr, "Checking for updates...")
+	netVersion, err := cmd.DownloadProductionVersion()
+	complain(download.ProductionVersion, err)
 
-	pathVersionInstalled := path.Join(scratch, pathVersionInstalled)
-	f, err = os.Open(pathVersionInstalled)
-	if !complain(pathVersionInstalled, err) {
-		ver, err := ioutil.ReadAll(f)
-		f.Close()
-		if !complain(pathVersionInstalled, err) {
-			installedVersion = string(ver)
-			fmt.Fprintln(os.Stderr, "Current version:", installedVersion)
-		}
+	version, _ := cmd.LoadVersionFile(path.Join(scratch, cmd.PathVersion))
+
+	needsTranslation, err := cmd.DownloadEnglishFiles(pso2path)
+	complain("", err)
+
+	installedVersion, _ := cmd.LoadVersionFile(path.Join(scratch, cmd.PathVersionInstalled))
+	if installedVersion != "" {
+		fmt.Fprintln(os.Stderr, "Current version:", installedVersion)
 	}
 
 	if netVersion != "" && version != netVersion {
@@ -143,83 +107,28 @@ func main() {
 		flagUpdate = true
 	}
 
-	var patchlist, patchlistOld, installedPatchlist, installedPatchlistOld, patchdiff *download.PatchList
-
 	fmt.Fprintln(os.Stderr, "Loading patchlist...")
-	pathPatchlist := path.Join(scratch, pathPatchlist)
-	f, err = os.Open(pathPatchlist)
-	if !complain(pathPatchlist, err) {
-		patchlist, err = download.ParseListCap(bufio.NewReader(f), download.ProductionPatchlist, 20000)
-		f.Close()
-		complain(pathPatchlist, err)
-	}
+	patchlist, err := cmd.LoadPatchlistFile(path.Join(scratch, cmd.PathPatchlist))
 
-	pathPatchlistOld := path.Join(scratch, pathPatchlistOld)
-	f, err = os.Open(pathPatchlistOld)
-	if !complain(pathPatchlist, err) {
-		patchlistOld, err = download.ParseListCap(bufio.NewReader(f), download.ProductionPatchlistOld, 20000)
-		f.Close()
-		complain(pathPatchlistOld, err)
-	}
-
-	if flagAll {
-		fmt.Fprintln(os.Stderr, "Ignoring patchlist, checking all files...")
+	var installedPatchlist *download.PatchList
+	if !flagAll {
+		installedPatchlist, _ = cmd.LoadPatchlistFile(path.Join(scratch, cmd.PathPatchlistInstalled))
+		needsTranslation = true
 	} else {
-		pathPatchlistInstalled := path.Join(scratch, pathPatchlistInstalled)
-		f, err = os.Open(pathPatchlistInstalled)
-		if !complain(pathPatchlistInstalled, err) {
-			installedPatchlist, err = download.ParseListCap(bufio.NewReader(f), download.ProductionPatchlist, 20000)
-			f.Close()
-			complain(pathPatchlistInstalled, err)
-		}
-
-		pathPatchlistOldInstalled := path.Join(scratch, pathPatchlistOldInstalled)
-		f, err = os.Open(pathPatchlistOldInstalled)
-		if !complain(pathPatchlistInstalled, err) {
-			installedPatchlistOld, err = download.ParseListCap(bufio.NewReader(f), download.ProductionPatchlistOld, 20000)
-			f.Close()
-			complain(pathPatchlistOldInstalled, err)
-		}
+		fmt.Fprintln(os.Stderr, "Ignoring patchlist, checking all files...")
 	}
 
-	if flagUpdate {
+	if flagUpdate || patchlist == nil {
 		fmt.Fprintln(os.Stderr, "Downloading patchlist.txt...")
-		patchlist, err = download.DownloadList(download.ProductionPatchlist)
+		patchlist, err = cmd.DownloadPatchlist(pso2path, netVersion)
 		ragequit(download.ProductionPatchlist, err)
-
-		patchlistOld, err = download.DownloadList(download.ProductionPatchlistOld)
-		ragequit(download.ProductionPatchlistOld, err)
-
-		fmt.Fprintln(os.Stderr, "Downloading launcherlist.txt...")
-		launcherlist, err := download.DownloadList(download.ProductionLauncherlist)
-		ragequit(download.ProductionLauncherlist, err)
-
-		patchlist.Append(launcherlist)
-
-		f, err := os.Create(pathPatchlist)
-		ragequit(pathPatchlist, err)
-		err = patchlist.Write(f)
-		f.Close()
-		ragequit(pathPatchlist, err)
-
-		f, err = os.Create(pathPatchlistOld)
-		ragequit(pathPatchlistOld, err)
-		err = patchlistOld.Write(f)
-		f.Close()
-		ragequit(pathPatchlistOld, err)
-
-		version = netVersion
-		err = ioutil.WriteFile(pathVersion, []byte(version), 0666)
 	}
 
-	if patchlist == nil {
-		ragequit(pathPatchlist, errors.New("no patchlist found - use the -u flag to download one"))
+	patchdiff := patchlist.Diff(installedPatchlist)
+
+	if installedPatchlist == nil {
+		flagCheck = true
 	}
-
-	patchlist = patchlist.MergeOld(patchlistOld)
-	installedPatchlist = installedPatchlist.MergeOld(installedPatchlistOld)
-
-	patchdiff = patchlist.Diff(installedPatchlist)
 
 	fmt.Fprintln(os.Stderr, len(patchdiff.Entries), "file(s) changed since last update")
 
@@ -232,45 +141,11 @@ func main() {
 	var changes []*download.PatchEntry
 	if flagCheck && len(patchdiff.Entries) > 0 {
 		fmt.Fprintln(os.Stderr, "Checking files...")
-
-		pbar := pb.New(len(patchdiff.Entries))
-		pbar.SetRefreshRate(time.Second / 30)
-		pbar.Start()
-
-		for i := range patchdiff.Entries {
-			e := &patchdiff.Entries[i]
-			filepath := path.Join(pso2path, download.RemoveExtension(e.Path))
-
-			st, err := os.Stat(filepath)
-
-			if os.IsNotExist(err) {
-				changes = append(changes, e)
-			} else {
-				ragequit(filepath, err)
-
-				if st.Size() != e.Size {
-					changes = append(changes, e)
-				} else if flagHash {
-					f, err := os.Open(filepath)
-					ragequit(filepath, err)
-					h := md5.New()
-					_, err = io.Copy(h, f)
-					f.Close()
-					ragequit(filepath, err)
-					if bytes.Compare(h.Sum(nil), e.MD5[:]) != 0 {
-						changes = append(changes, e)
-					}
-				}
-			}
-
-			pbar.Increment()
-			runtime.Gosched()
-		}
-
-		pbar.Finish()
+		changes, err = cmd.CheckFiles(pso2path, flagHash, patchdiff)
+		ragequit("", err)
 
 		if len(changes) == 0 {
-			success(scratch)
+			cmd.CommitInstalled(pso2path)
 		}
 	} else {
 		for i := range patchdiff.Entries {
@@ -292,132 +167,106 @@ func main() {
 	}
 
 	if flagDownload && len(changes) > 0 {
-		errorCount := 0
+		errors := cmd.DownloadChanges(pso2path, changes, flagParallel)
 
-		pbar := pb.New64(changesSize)
-		pbar.SetUnits(pb.U_BYTES)
-		pbar.SetRefreshRate(time.Second / 30)
-		pbar.ShowSpeed = true
-		pbar.Start()
-
-		queue := make(chan *download.PatchEntry)
-		done := make(chan bool)
-
-		for i := 0; i < flagParallel; i++ {
-			complain := func(apath string, err error) bool {
-				if complain(apath, err) {
-					errorCount++
-					return true
-				}
-
-				return false
+		if len(errors) > 0 {
+			for err := range errors {
+				fmt.Fprintln(os.Stderr, err)
 			}
-
-			go func() {
-				h := md5.New()
-
-				for {
-					e, ok := <-queue
-					if !ok {
-						break
-					}
-
-					filepath := path.Join(pso2path, download.RemoveExtension(e.Path))
-
-					err := os.MkdirAll(path.Dir(filepath), 0777)
-					ragequit(path.Dir(filepath), err)
-
-					pathUrl, err := e.URL()
-					ragequit(e.Path, err)
-
-					resp, err := download.Request(pathUrl.String())
-					if complain(pathUrl.String(), err) {
-						continue
-					}
-
-					if resp.StatusCode != 200 {
-						complain(pathUrl.String(), errors.New(resp.Status))
-						continue
-					}
-
-					if resp.ContentLength >= 0 && resp.ContentLength != e.Size {
-						resp.Body.Close()
-						complain(pathUrl.String(), errors.New("invalid file size"))
-						continue
-					}
-
-					f, err := os.Create(filepath)
-					if complain(filepath, err) {
-						resp.Body.Close()
-						continue
-					}
-
-					h.Reset()
-					n, err := io.Copy(io.MultiWriter(f, h, pbar), resp.Body)
-
-					resp.Body.Close()
-					f.Close()
-
-					if !complain(filepath, err) {
-						if n != e.Size {
-							complain(pathUrl.String(), errors.New("download finished prematurely"))
-						} else if bytes.Compare(h.Sum(nil), e.MD5[:]) != 0 {
-							complain(pathUrl.String(), errors.New("download hash mismatch"))
-						}
-					}
-				}
-
-				done <-true
-			}()
-		}
-
-		for _, e := range changes {
-			queue <-e
-		}
-		close(queue)
-
-		for i := 0; i < flagParallel; i++ {
-			<-done
-		}
-
-		pbar.Finish()
-
-		if errorCount > 0 {
 			fmt.Fprintln(os.Stderr, "Update unsuccessful, errors encountered")
 		} else {
 			fmt.Fprintln(os.Stderr, "Update complete!")
-			success(scratch)
+			cmd.CommitInstalled(pso2path)
+			needsTranslation = true
 		}
 	}
 
 	if flagGarbage {
 		fmt.Fprintln(os.Stderr, "Deleting old, unused files...")
-		win32 := path.Join(pso2path, "data/win32")
 
-		f, err := os.Open(win32)
-		ragequit(win32, err)
-		garbageSize := int64(0)
-		for err == nil {
-			var files []os.FileInfo
-			files, err = f.Readdir(0x80)
-			for _, f := range files {
-				if f.IsDir() {
-					continue
-				}
-
-				e := patchlist.EntryMap[f.Name() + ".pat"]
-
-				if e == nil {
-					fmt.Fprintln(os.Stderr, "\t", f.Name())
-					garbageSize += f.Size()
-					win32 := path.Join(win32, f.Name())
-					err = os.Remove(win32)
-					complain(win32, err)
-				}
-			}
-		}
-		f.Close()
+		garbageSize, err := cmd.PruneFiles(pso2path, patchlist)
+		complain("", err)
 
 		fmt.Fprintf(os.Stderr, "Done! Saved %0.2f MB of space.\n", float32(garbageSize) / 1024 / 1024)
+	}
+
+	if needsTranslation && len(flagTranslations) > 0 {
+		fmt.Fprintln(os.Stderr, "Applying english patches...")
+		db, err := trans.NewDatabase(path.Join(scratch, cmd.PathEnglishDb))
+		backupPath := ""
+		if flagBackup {
+			backupPath = path.Join(scratch, "backup")
+			err = os.MkdirAll(backupPath, 0777)
+			if complain(backupPath, err) {
+				backupPath = ""
+			}
+		}
+		if !complain("", err) {
+			var errs []error
+			for _, translation := range flagTranslations {
+				errs = append(errs, transcmd.PatchFiles(db, path.Join(pso2path, "data/win32"), translation, backupPath, pso2path, runtime.NumCPU() + 1)...)
+			}
+
+			for _, err := range errs {
+				complain("", err)
+			}
+		}
+		db.Close()
+	}
+
+	if flagLaunch {
+		config, _ := cmd.LoadTranslationConfig(pso2path)
+		configChanged := false
+
+		if config == nil {
+			config = make(cmd.TranslationConfig)
+		}
+
+		setConfig := func(key, value string) {
+			if config[key] != value {
+				config[key] = value
+				configChanged = true
+			}
+		}
+
+		if flagItemTranslation {
+			setConfig(cmd.ConfigTranslationPath, path.Join("download", cmd.PathTranslationBin))
+		} else {
+			setConfig(cmd.ConfigTranslationPath, "")
+		}
+
+		if flagDumpPublicKey != "" {
+			setConfig(cmd.ConfigPublicKeyPath, flagDumpPublicKey)
+			setConfig(cmd.ConfigPublicKeyDump, "1")
+		} else {
+			setConfig(cmd.ConfigPublicKeyPath, flagPublicKey)
+			setConfig(cmd.ConfigPublicKeyDump, "")
+		}
+
+		if configChanged {
+			cmd.SaveTranslationConfig(pso2path, config)
+		}
+
+		fmt.Fprintln(os.Stderr, "Launching PSO2...")
+
+		command, err := cmd.LaunchGame(pso2path)
+		ragequit("", err)
+
+		loadDll := flagItemTranslation || flagPublicKey != "" || flagDumpPublicKey != ""
+		ddraw := path.Join(pso2path, "ddraw.dll")
+
+		if loadDll {
+			err = ioutil.WriteFile(ddraw, cmd.DdrawDll[:], 0777)
+			complain(ddraw, err)
+		}
+
+		err = command.Wait()
+
+		if loadDll {
+			err = os.Remove(ddraw)
+			complain(ddraw, err)
+		}
+
+		ragequit("", err)
 	}
 }

@@ -9,6 +9,7 @@ TEXT_GO			:=	$(wildcard text/*.go) $(UTIL_GO)
 TRANS_GO		:=	$(wildcard trans/*.go) $(UTIL_GO)
 TRANS_CMD_GO	:=	$(wildcard trans/cmd/*.go) $(TRANS_GO) $(TEXT_GO) $(ICE_GO)
 DOWNLOAD_GO		:=	$(wildcard download/*.go)
+DOWNLOAD_CMD_GO	:=	$(wildcard download/cmd/*.go) $(DOWNLOAD_GO)
 
 all: $(CMDS)
 
@@ -24,6 +25,6 @@ pso2-trans: $(TRANS_CMD_GO) $(wildcard cmd/pso2-trans/*.go)
 pso2-trans-apply: $(TRANS_CMD_GO) $(wildcard cmd/pso2-trans-apply/*.go)
 pso2-afp: $(AFP_GO) $(wildcard cmd/pso2-afp/*.go)
 pso2-net: $(NET_GO) $(wildcard cmd/pso2-net/*.go)
-pso2-download: $(DOWNLOAD_GO) $(wildcard cmd/pso2-download/*.go)
+pso2-download: $(DOWNLOAD_CMD_GO) $(TRANS_CMD_GO) $(wildcard cmd/pso2-download/*.go)
 
 .PHONY: all clean
