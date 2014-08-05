@@ -82,7 +82,11 @@ func main() {
 			ragequit(flagOutput, err)
 		}
 
-		cmd.PatchFiles(db, dbpath, pso2dir, flagTrans, flagBackup, flagOutput, flagParallel)
+		errs := cmd.PatchFiles(db, pso2dir, flagTrans, flagBackup, flagOutput, flagParallel)
+
+		for _, err := range errs {
+			complain("", err)
+		}
 	} else {
 		fmt.Fprintln(os.Stderr, "no translation name provided")
 	}

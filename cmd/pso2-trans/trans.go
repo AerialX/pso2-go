@@ -329,12 +329,17 @@ func main() {
 			ragequit(flagOutput, err)
 		}
 
-		cmd.PatchFiles(db, dbpath, pso2dir, flagTrans, flagBackup, flagOutput, flagParallel)
+		errs := cmd.PatchFiles(db, pso2dir, flagTrans, flagBackup, flagOutput, flagParallel)
+
+		for _, err := range errs {
+			complain("", err)
+		}
 	}
 
 	db.Close()
 
 	if flagStrip != "" {
-		cmd.StripDatabase(dbpath, flagStrip)
+		err := cmd.StripDatabase(dbpath, flagStrip)
+		complain(flagStrip, err)
 	}
 }

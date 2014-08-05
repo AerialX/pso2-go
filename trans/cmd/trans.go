@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"os"
-	"fmt"
 	"path"
 	"time"
+	"sync"
 	"bufio"
 	"errors"
 	"io/ioutil"
@@ -15,43 +15,37 @@ import (
 	"aaronlindsay.com/go/pkg/pso2/trans"
 )
 
-func complain(apath string, err error) bool {
+func StripDatabase(dbpath, flagStrip string) (err error) {
+	err = util.CopyFile(dbpath, flagStrip)
 	if err != nil {
-		if apath != "" {
-			fmt.Fprintf(os.Stderr, "error with file `%s`\n", apath)
-		}
-		fmt.Fprintln(os.Stderr, err);
-		return true
+		return
 	}
-
-	return false
-}
-
-func ragequit(apath string, err error) {
-	if complain(apath, err) {
-		os.Exit(1)
-	}
-}
-
-func StripDatabase(dbpath, flagStrip string) {
-	err := util.CopyFile(dbpath, flagStrip)
-	ragequit(flagStrip, err)
 
 	db, err := trans.NewDatabase(flagStrip)
-	ragequit(flagStrip, err)
+	if err != nil {
+		return
+	}
 
 	err = db.Strip()
-	ragequit(flagStrip, err)
 
 	db.Close()
+
+	return
 }
 
-func PatchFiles(db *trans.Database, dbpath, pso2dir, flagTrans, flagBackup, flagOutput string, flagParallel int) {
-	translation, err := db.QueryTranslation(flagTrans)
-	ragequit(flagTrans, err)
+func PatchFiles(db *trans.Database, pso2dir, translationName, backupPath, outputPath string, parallel int) (errs []error) {
+	translation, err := db.QueryTranslation(translationName)
+	if err == nil && translation == nil {
+		err = errors.New("translation not found")
+	}
+	if err != nil {
+		return []error{err}
+	}
 
 	archives, err := db.QueryArchivesTranslation(translation)
-	ragequit(dbpath, err)
+	if err != nil {
+		return []error{err}
+	}
 
 	pbar := pb.New(len(archives))
 	pbar.SetRefreshRate(time.Second / 10)
@@ -60,7 +54,20 @@ func PatchFiles(db *trans.Database, dbpath, pso2dir, flagTrans, flagBackup, flag
 	queue := make(chan *trans.Archive)
 	done := make(chan bool)
 
-	for i := 0; i < flagParallel; i++ {
+	errlock := sync.Mutex{}
+
+	complain := func(err error) bool {
+		if err != nil {
+			errlock.Lock()
+			errs = append(errs, err)
+			errlock.Unlock()
+			return true
+		}
+
+		return false
+	}
+
+	for i := 0; i < parallel; i++ {
 		go func() {
 			for {
 				a, ok := <-queue
@@ -70,17 +77,17 @@ func PatchFiles(db *trans.Database, dbpath, pso2dir, flagTrans, flagBackup, flag
 
 				aname := path.Join(pso2dir, a.Name.String())
 				af, err := os.OpenFile(aname, os.O_RDONLY, 0);
-				if complain(aname, err) {
+				if complain(err) {
 					continue
 				}
 
 				archive, err := ice.NewArchive(util.BufReader(af))
-				if complain(aname, err) {
+				if complain(err) {
 					continue
 				}
 
 				files, err := db.QueryFiles(a)
-				if complain(aname, err) {
+				if complain(err) {
 					continue
 				}
 
@@ -89,18 +96,19 @@ func PatchFiles(db *trans.Database, dbpath, pso2dir, flagTrans, flagBackup, flag
 				var textfiles []*os.File
 				for _, f := range files {
 					tstrings, err := db.QueryTranslationStringsFile(translation, &f)
-					if complain(f.Name, err) || len(tstrings) == 0 {
+					if complain(err) || len(tstrings) == 0 {
 						continue
 					}
 
 					strings := make([]*trans.String, len(tstrings))
 					for i, ts := range tstrings {
 						strings[i], err = db.QueryStringTranslation(&ts)
+						complain(err)
 					}
 
 					file := archive.FindFile(-1, f.Name)
 					if file == nil {
-						if complain(f.Name, errors.New("file not found")) {
+						if complain(errors.New(f.Name + ": file not found")) {
 							continue
 						}
 					}
@@ -131,14 +139,14 @@ func PatchFiles(db *trans.Database, dbpath, pso2dir, flagTrans, flagBackup, flag
 					}
 
 					tf, err := ioutil.TempFile("", "")
-					if complain(f.Name, err) {
+					if complain(err) {
 						continue
 					}
 
 					writer := bufio.NewWriter(tf)
 					err = textfile.Write(writer)
 					writer.Flush()
-					if complain(tf.Name(), err) {
+					if complain(err) {
 						tf.Close()
 						os.Remove(tf.Name())
 						continue
@@ -153,23 +161,28 @@ func PatchFiles(db *trans.Database, dbpath, pso2dir, flagTrans, flagBackup, flag
 				if fileDirty {
 					ofile, err := ioutil.TempFile("", "")
 
-					aname := path.Join(flagOutput, a.Name.String())
+					aname := path.Join(outputPath, a.Name.String())
 
-					if !complain(aname, err) {
+					if !complain(err) {
+						backupPath := backupPath
+						if archive.IsModified() {
+							backupPath = ""
+						}
+
 						writer := bufio.NewWriter(ofile)
 						err = archive.Write(writer)
 						writer.Flush()
 						ofile.Close()
 
-						if flagBackup != "" {
-							opath := path.Join(flagBackup, path.Base(aname))
+						if backupPath != "" {
+							opath := path.Join(backupPath, path.Base(aname))
 							err = os.Rename(aname, opath)
 							if err != nil {
 								err = util.CopyFile(aname, opath)
 							}
 						}
 
-						if complain(aname, err) {
+						if complain(err) {
 							os.Remove(ofile.Name())
 						} else {
 							err = os.Rename(ofile.Name(), aname)
@@ -177,7 +190,7 @@ func PatchFiles(db *trans.Database, dbpath, pso2dir, flagTrans, flagBackup, flag
 								err = util.CopyFile(ofile.Name(), aname)
 								os.Remove(ofile.Name())
 							}
-							complain(aname, err)
+							complain(err)
 						}
 					}
 				}
@@ -201,9 +214,11 @@ func PatchFiles(db *trans.Database, dbpath, pso2dir, flagTrans, flagBackup, flag
 	}
 	close(queue)
 
-	for i := 0; i < flagParallel; i++ {
+	for i := 0; i < parallel; i++ {
 		<-done
 	}
 
 	pbar.Finish()
+
+	return
 }
