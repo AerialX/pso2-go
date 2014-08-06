@@ -5,6 +5,7 @@ import (
 	"os"
 	"flag"
 	"path"
+	"time"
 	"strings"
 	"runtime"
 	"io/ioutil"
@@ -13,6 +14,13 @@ import (
 	"aaronlindsay.com/go/pkg/pso2/download"
 	"aaronlindsay.com/go/pkg/pso2/download/cmd"
 )
+
+func wait() {
+	if runtime.GOOS == "windows" {
+		fmt.Println("Press enter to exit...")
+		os.Stdin.Read([]byte{0})
+	}
+}
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: pso2-download [flags] pso2/root/path")
@@ -34,6 +42,7 @@ func complain(apath string, err error) bool {
 
 func ragequit(apath string, err error) {
 	if complain(apath, err) {
+		wait()
 		os.Exit(1)
 	}
 }
@@ -108,14 +117,14 @@ func main() {
 	}
 
 	fmt.Fprintln(os.Stderr, "Loading patchlist...")
-	patchlist, err := cmd.LoadPatchlistFile(path.Join(scratch, cmd.PathPatchlist))
+	patchlist, err := cmd.LoadPatchlist(pso2path)
 
 	var installedPatchlist *download.PatchList
 	if !flagAll {
-		installedPatchlist, _ = cmd.LoadPatchlistFile(path.Join(scratch, cmd.PathPatchlistInstalled))
-		needsTranslation = true
+		installedPatchlist, _ = cmd.LoadPatchlistFile(path.Join(scratch, cmd.PathPatchlistInstalled), "")
 	} else {
 		fmt.Fprintln(os.Stderr, "Ignoring patchlist, checking all files...")
+		needsTranslation = true
 	}
 
 	if flagUpdate || patchlist == nil {
@@ -145,7 +154,7 @@ func main() {
 		ragequit("", err)
 
 		if len(changes) == 0 {
-			cmd.CommitInstalled(pso2path)
+			cmd.CommitInstalled(pso2path, patchlist)
 		}
 	} else {
 		for i := range patchdiff.Entries {
@@ -167,16 +176,16 @@ func main() {
 	}
 
 	if flagDownload && len(changes) > 0 {
-		errors := cmd.DownloadChanges(pso2path, changes, flagParallel)
+		errs := cmd.DownloadChanges(pso2path, changes, flagParallel)
 
-		if len(errors) > 0 {
-			for err := range errors {
-				fmt.Fprintln(os.Stderr, err)
+		if len(errs) > 0 {
+			for _, err := range errs {
+				complain("", err)
 			}
 			fmt.Fprintln(os.Stderr, "Update unsuccessful, errors encountered")
 		} else {
 			fmt.Fprintln(os.Stderr, "Update complete!")
-			cmd.CommitInstalled(pso2path)
+			cmd.CommitInstalled(pso2path, patchlist)
 			needsTranslation = true
 		}
 	}
@@ -204,7 +213,8 @@ func main() {
 		if !complain("", err) {
 			var errs []error
 			for _, translation := range flagTranslations {
-				errs = append(errs, transcmd.PatchFiles(db, path.Join(pso2path, "data/win32"), translation, backupPath, pso2path, runtime.NumCPU() + 1)...)
+				win32 := path.Join(pso2path, "data/win32")
+				errs = append(errs, transcmd.PatchFiles(db, win32, translation, backupPath, win32, runtime.NumCPU() + 1)...)
 			}
 
 			for _, err := range errs {
@@ -263,10 +273,14 @@ func main() {
 		err = command.Wait()
 
 		if loadDll {
+			time.Sleep(time.Second * 15)
 			err = os.Remove(ddraw)
 			complain(ddraw, err)
+			err = nil
 		}
 
 		ragequit("", err)
+	} else {
+		wait()
 	}
 }

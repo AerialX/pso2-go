@@ -22,6 +22,7 @@ import (
 
 const (
 	PathPatchlist = "patchlist.txt"
+	PathPatchlistOld = "patchlist-old.txt"
 	PathPatchlistInstalled = "patchlist-installed.txt"
 	PathVersion = "version.ver"
 	PathVersionInstalled = "version-installed.ver"
@@ -36,11 +37,16 @@ func PathScratch(pso2path string) string {
 	return path.Join(pso2path, "download")
 }
 
-func CommitInstalled(pso2path string) error {
+func CommitInstalled(pso2path string, patchlist *download.PatchList) error {
 	scratch := PathScratch(pso2path)
 
 	pathPatchlistInstalled := path.Join(scratch, PathPatchlistInstalled)
-	err := util.CopyFile(path.Join(scratch, PathPatchlist), pathPatchlistInstalled)
+	f, err := os.Create(pathPatchlistInstalled)
+	if err != nil {
+		return err
+	}
+	err = patchlist.Write(f)
+	f.Close()
 	if err != nil {
 		return err
 	}
@@ -81,14 +87,32 @@ func LoadVersionFile(filename string) (s string, err error) {
 	return
 }
 
-func LoadPatchlistFile(filename string) (p *download.PatchList, err error) {
+func LoadPatchlistFile(filename, urlStr string) (p *download.PatchList, err error) {
 	f, err := os.Open(filename)
 	if err != nil {
 		return
 	}
 
-	p, err = download.ParseListCap(bufio.NewReader(f), download.ProductionPatchlist, 20000)
+	p, err = download.ParseListCap(bufio.NewReader(f), urlStr, 20000)
 	f.Close()
+	return
+}
+
+func LoadPatchlist(pso2path string) (patchlist *download.PatchList, err error) {
+	scratch := PathScratch(pso2path)
+
+	patchlist, err = LoadPatchlistFile(path.Join(scratch, PathPatchlist), download.ProductionPatchlist)
+	if err != nil {
+		return
+	}
+
+	patchlistOld, err := LoadPatchlistFile(path.Join(scratch, PathPatchlistOld), download.ProductionPatchlistOld)
+	if err != nil {
+		return
+	}
+
+	patchlist = patchlist.MergeOld(patchlistOld)
+
 	return
 }
 
@@ -96,6 +120,7 @@ func DownloadPatchlist(pso2path, version string) (patchlist *download.PatchList,
 	scratch := PathScratch(pso2path)
 
 	pathPatchlist := path.Join(scratch, PathPatchlist)
+	pathPatchlistOld := path.Join(scratch, PathPatchlistOld)
 	pathVersion := path.Join(scratch, PathVersion)
 
 	patchlist, err = download.DownloadList(download.ProductionPatchlist)
@@ -114,7 +139,6 @@ func DownloadPatchlist(pso2path, version string) (patchlist *download.PatchList,
 	}
 
 	patchlist.Append(launcherlist)
-	patchlist = patchlist.MergeOld(patchlistOld)
 
 	f, err := os.Create(pathPatchlist)
 	if err != nil {
@@ -125,6 +149,18 @@ func DownloadPatchlist(pso2path, version string) (patchlist *download.PatchList,
 	if err != nil {
 		return
 	}
+
+	f, err = os.Create(pathPatchlistOld)
+	if err != nil {
+		return
+	}
+	err = patchlistOld.Write(f)
+	f.Close()
+	if err != nil {
+		return
+	}
+
+	patchlist = patchlist.MergeOld(patchlistOld)
 
 	err = ioutil.WriteFile(pathVersion, []byte(version), 0666)
 
