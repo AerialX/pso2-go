@@ -1,6 +1,6 @@
 ## pso2-download
 
-[**Download pso2-download.exe**](pso2-download.exe)
+[**Download pso2-download.exe**](pso2-download.exe) - [Screenshot!](pso2-download-screen.png)
 
 pso2-download is an updater, launcher, and language patcher for Phantasy Star Online 2. It automatically performs quick updates and keeps patches instantly up to date as soon as the game is updated. Patches are downloaded in a very bandwidth-conscious way such that the entire game can be translated with about 6MB.
 
