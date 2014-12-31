@@ -58,7 +58,7 @@ func (h *ModelHeader) Validate() error {
 }
 
 func (m *Model) parse() (err error) {
-	reader := binary.BinaryReader{m.reader, binary.LittleEndian}
+	reader := binary.BinaryReader{ Reader: m.reader, Endianess: binary.LittleEndian }
 
 	if err = reader.ReadInterface(&m.Header); err != nil {
 		return
@@ -100,7 +100,7 @@ func (m *Model) Write(writer io.Writer) error {
 }
 
 func parseModelEntryVSET(entry *ModelEntry) error {
-	reader := binary.BinaryReader{entry.Data, binary.LittleEndian}
+	reader := binary.BinaryReader{ Reader: entry.Data, Endianess: binary.LittleEndian }
 
 	var err error
 

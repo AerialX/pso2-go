@@ -29,7 +29,7 @@ func NewTagFile(reader io.ReadSeeker) (*TagFile, error) {
 
 func (f *TagFile) parse() error {
 	var err error
-	reader := binary.BinaryReader{ f.reader, binary.LittleEndian };
+	reader := binary.BinaryReader{ Reader: f.reader, Endianess: binary.LittleEndian };
 
 	offset := int64(0)
 
@@ -52,7 +52,7 @@ func (f *TagFile) parse() error {
 }
 
 func TagRead(r io.ReadSeeker) (TagFileEntry, error) {
-	reader := binary.BinaryReader{ r, binary.LittleEndian };
+	reader := binary.BinaryReader{ Reader: r, Endianess: binary.LittleEndian };
 
 	var err error
 	var entry TagFileEntry

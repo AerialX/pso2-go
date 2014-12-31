@@ -25,7 +25,7 @@ type PacketData interface {
 }
 
 func PacketToBinary(p *Packet, i interface{}) (interface{}, error) {
-	reader := binary.BinaryReader{util.Seeker(bytes.NewBuffer(p.Data)), binary.LittleEndian}
+	reader := binary.BinaryReader{ Reader: util.Seeker(bytes.NewBuffer(p.Data)), Endianess: binary.LittleEndian }
 
 	err := reader.ReadInterface(i)
 

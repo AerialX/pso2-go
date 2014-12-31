@@ -53,7 +53,7 @@ func (h *archiveHeader) Validate() error {
 }
 
 func (a *Archive) parse() (err error) {
-	reader := binary.BinaryReader{a.reader, binary.LittleEndian}
+	reader := binary.BinaryReader{ Reader: a.reader, Endianess: binary.LittleEndian }
 
 	if err = reader.ReadInterface(&a.header); err != nil {
 		return

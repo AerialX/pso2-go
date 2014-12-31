@@ -52,7 +52,7 @@ func (t *TextFile) parse(r io.ReadSeeker) (err error) {
 		return errors.New("NIFL tag expected")
 	}
 
-	reader := binary.BinaryReader{ nifl.Data, binary.LittleEndian }
+	reader := binary.BinaryReader{ Reader: nifl.Data, Endianess: binary.LittleEndian }
 
 	type niflHeaderType struct {
 		Unk, OffsetREL0, SizeREL0, OffsetNOF0, SizeNOF0 uint32
@@ -76,7 +76,7 @@ func (t *TextFile) parse(r io.ReadSeeker) (err error) {
 
 	var rel0data io.ReadSeeker
 	var rel0strings io.ReadSeeker
-	reader = binary.BinaryReader{ rel0.Data, binary.LittleEndian }
+	reader = binary.BinaryReader{ Reader: rel0.Data, Endianess: binary.LittleEndian }
 	rel0size, err := reader.Uint32()
 	rel0data = io.NewSectionReader(util.ReaderAt(rel0.Data), 8, int64(rel0size) - 8)
 	rel0strings = io.NewSectionReader(util.ReaderAt(rel0.Data), int64(rel0size), int64(rel0.Size - rel0size))
@@ -102,7 +102,7 @@ func (t *TextFile) parse(r io.ReadSeeker) (err error) {
 		return errors.New("NOF0 tag expected")
 	}
 
-	nof0reader := binary.BinaryReader{ nof0.Data, binary.LittleEndian }
+	nof0reader := binary.BinaryReader{ Reader: nof0.Data, Endianess: binary.LittleEndian }
 	count, err := nof0reader.Uint32()
 	offsets := make([]uint32, int(count) + 1)
 	i := 0
@@ -121,7 +121,7 @@ func (t *TextFile) parse(r io.ReadSeeker) (err error) {
 
 	t.Entries = make([]TextEntry, len(offsets))
 
-	rel0reader := binary.BinaryReader{ rel0data, binary.LittleEndian }
+	rel0reader := binary.BinaryReader{ Reader: rel0data, Endianess: binary.LittleEndian }
 
 	pairMode := false
 	var pair *string
