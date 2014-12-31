@@ -172,6 +172,11 @@ func main() {
 					continue
 				}
 
+				if s == nil {
+					complain(fname + ": " + identifier, errors.New("string not found in database"))
+					continue
+				}
+
 				if s.Value != translation {
 					ts, _ := db.QueryTranslationString(t, s)
 					if ts != nil {
